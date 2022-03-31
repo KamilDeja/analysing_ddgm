@@ -11,6 +11,9 @@ from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
+import numpy.matlib
+from copy import copy
+from matplotlib.colors import LogNorm
 
 from . import dist_util, logger
 from .fp16_util import MixedPrecisionTrainer
@@ -337,8 +340,8 @@ class TrainLoop:
         return all_images, tasks
 
     @th.no_grad()
-    def plot(self, task_id, step, num_exammples=4):
-        sample, _ = self.generate_examples(task_id, num_exammples)
+    def plot(self, task_id, step, num_examples=4):
+        sample, _ = self.generate_examples(task_id, num_examples)
         samples_grid = make_grid(sample.detach().cpu(), num_exammples, normalize=True).permute(1, 2, 0)
         sample_wandb = wandb.Image(samples_grid.permute(2, 0, 1), caption=f"sample_task_{task_id}")
         wandb.log({"sampled_images": sample_wandb})
@@ -349,6 +352,48 @@ class TrainLoop:
             os.makedirs(os.path.join(logger.get_dir(), f"samples/"))
         out_plot = os.path.join(logger.get_dir(), f"samples/task_{task_id:02d}_step_{step:06d}")
         plt.savefig(out_plot)
+
+        # TODO: add snr plots: for the forward process x->z and backward z->x
+        snr_bwd, x = self.get_snr_bwd(th.tensor([0]))
+        snr_fwd = self.get_snr_fwd(x)
+        snr_bwd_fl = th.log(snr_bwd.reshape(snr_bwd.shape[0], -1).detach())
+        snr_fwd_fl = th.log(snr_fwd.reshape(snr_fwd.shape[0], -1).detach())
+
+
+    @th.no_grad()
+    def get_snr_fwd(self, x):
+        indices_fwd = list(range(self.num_timesteps))
+        shape = x.shape
+        snr = []
+        for i in indices_fwd:
+            t = th.tensor([i] * shape[0], device=dist_util.dev())
+            mu, var, _ = self.diffusion.q_mean_variance(x, t)
+            snr.append(mu**2 / var)
+        return snr
+
+    @th.no_grad()
+    def get_snr_bwd(self, task_id):
+        shape = (task_id.shape[0], self.in_channels, self.image_size, self.image_size)
+        x_curr = th.randn(*shape, device=dist_util.dev())
+        model_kwargs = {
+            "y": th.zeros(n_examples_per_task, device=dist_util.dev()) + task_id
+        }
+        indices_bwd = list(range(self.num_timesteps))[::-1]
+        model = self.mp_trainer.model
+        model.eval()
+        snr = []
+        for j in indices_bwd:
+            t = th.tensor([j] * shape[0], device=device)
+            p_out = self.diffusion.p_mean_variance(
+                model, x_curr, t, clip_denoised=False, model_kwargs=model_kwargs
+            )
+            snr.append(torch.mean(p_out['mean']**2 / p_out['variance']))
+            noise = th.randn_like(x_curr)
+            nonzero_mask = (
+                (t != 0).float().view(-1, *([1] * (len(x_curr.shape) - 1)))
+            )  # no noise when t == 0
+            x_curr = p_out["mean"] + nonzero_mask * th.exp(0.5 * p_out["log_variance"]) * noise
+        return snr, x_curr
 
 
 def parse_resume_step_from_filename(filename):
@@ -395,3 +440,20 @@ def log_loss_dict(diffusion, ts, losses):
         for sub_t, sub_loss in zip(ts.cpu().numpy(), values.detach().cpu().numpy()):
             quartile = int(4 * sub_t / diffusion.num_timesteps)
             logger.logkv_mean(f"{key}_q{quartile}", sub_loss)
+
+
+def time_hist(ax, data):
+    num_pt, num_ts = data.shape
+    num_fine = num_pt*10
+    x_fine = np.linspace(0, num_pt, num_fine)
+    y_fine = np.empty((num_ts, num_fine), dtype=float)
+    for i in range(num_ts):
+        y_fine[i, :] = np.interp(x_fine, range(num_pt), data[:, i])
+    y_fine = y_fine.flatten()
+    x_fine = np.matlib.repmat(x_fine, num_ts, 1).flatten()
+
+    cmap = copy(plt.cm.plasma)
+    cmap.set_bad(cmap(0))
+    h, xedges, yedges = np.histogram2d(x_fine, y_fine, bins=[40, 1000])
+    pcm = ax.pcolormesh(xedges, yedges, h.T, cmap=cmap, norm=LogNorm(vmax=1.5e2), rasterized=True)
+    fig.colorbar(pcm, ax=ax, label="# points", pad=0)
