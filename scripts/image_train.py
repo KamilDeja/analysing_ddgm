@@ -225,6 +225,7 @@ def create_argparser():
         ema_rate="0.9999",  # comma-separated list of EMA values
         log_interval=50,
         log_snr=False,
+        num_points_plot=2,
         skip_save=False,
         save_interval=5000,
         plot_interval=1000,

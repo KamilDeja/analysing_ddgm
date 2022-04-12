@@ -387,16 +387,23 @@ class TrainLoop:
         snr_fwd_fl = []
         snr_bwd_fl = []
         kl_fl = []
-        num_examples = 40
+        num_examples = 100
         for task in range(task_id+1):
             id_curr = th.where(cond['y'] == task)[0][:num_examples]
             x = batch[id_curr]
             x = x.to(dist_util.dev())
+            num_examples = x.shape[0]
             task_tsr = th.tensor([task]*num_examples, device=dist_util.dev())
-            N_pts = 2
-            snr_fwd, snr_bwd, kl, x_q, x_p = self.get_snr_encode(x, task_tsr, save_x=N_pts)
-            x_p_q = th.cat([th.cat([x_q[j::N_pts], x_p[j::N_pts]]) for j in range(N_pts)])
-            x_p_q_vis = make_grid(x_p_q.detach().cpu(), x_q.shape[0]//N_pts,
+
+            snr_fwd, snr_bwd, kl, x_q, x_p = self.get_snr_encode(x,
+                                                                 task_tsr,
+                                                                 save_x=self.params.num_points_plot)
+            x_p_q = th.cat([
+                th.cat([x_q[j::self.params.num_points_plot],
+                        x_p[j::self.params.num_points_plot]
+                        ]) for j in range(self.params.num_points_plot)])
+            x_p_q_vis = make_grid(x_p_q.detach().cpu(),
+                                  x_q.shape[0]//self.params.num_points_plot,
                                   normalize=True, scale_each=True)
             logs[f"plot/x_{task}"] = wandb.Image(x_p_q_vis)
             kl_fl.append(kl.cpu())
