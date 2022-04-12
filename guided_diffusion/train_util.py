@@ -12,13 +12,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 import numpy.matlib
-from copy import copy
 from matplotlib.colors import LogNorm
 
 from . import dist_util, logger
 from .fp16_util import MixedPrecisionTrainer
 from .nn import update_ema
 from .resample import LossAwareSampler, UniformSampler, TaskAwareSampler
+from .gaussian_diffusion import _extract_into_tensor
+from .nn import mean_flat
+from .losses import normal_kl
 
 import wandb
 
@@ -202,6 +204,8 @@ class TrainLoop:
             if self.step > 0:
                 if self.step % self.plot_interval == 0:
                     self.plot(self.task_id, self.step)
+                    if self.params.log_snr:
+                        self.snr_plots(batch, cond, self.task_id, self.step)
                 if self.step % self.scheduler_step == 0:
                     self.scheduler.step()
             self.step += 1
@@ -211,6 +215,8 @@ class TrainLoop:
                 self.save(self.task_id)
         if (self.step - 1) % self.plot_interval != 0:
             self.plot(self.task_id, self.step)
+            if self.params.log_snr:
+                self.snr_plots(batch, cond, self.task_id, self.step)
 
     def run_step(self, batch, cond):
         self.forward_backward(batch, cond)
@@ -301,7 +307,6 @@ class TrainLoop:
 
         dist.barrier()
 
-
     @th.no_grad()
     def generate_examples(self, task_id, n_examples_per_task, batch_size=-1, only_one_task=False):
         if not only_one_task:
@@ -342,9 +347,9 @@ class TrainLoop:
     @th.no_grad()
     def plot(self, task_id, step, num_examples=4):
         sample, _ = self.generate_examples(task_id, num_examples)
-        samples_grid = make_grid(sample.detach().cpu(), num_exammples, normalize=True).permute(1, 2, 0)
+        samples_grid = make_grid(sample.detach().cpu(), num_examples, normalize=True).permute(1, 2, 0)
         sample_wandb = wandb.Image(samples_grid.permute(2, 0, 1), caption=f"sample_task_{task_id}")
-        wandb.log({"sampled_images": sample_wandb})
+        logs = {"sampled_images": sample_wandb}
 
         plt.imshow(samples_grid)
         plt.axis('off')
@@ -352,48 +357,113 @@ class TrainLoop:
             os.makedirs(os.path.join(logger.get_dir(), f"samples/"))
         out_plot = os.path.join(logger.get_dir(), f"samples/task_{task_id:02d}_step_{step:06d}")
         plt.savefig(out_plot)
+        wandb.log(logs, step=step)
 
-        # TODO: add snr plots: for the forward process x->z and backward z->x
-        snr_bwd, x = self.get_snr_bwd(th.tensor([0]))
-        snr_fwd = self.get_snr_fwd(x)
-        snr_bwd_fl = th.log(snr_bwd.reshape(snr_bwd.shape[0], -1).detach())
-        snr_fwd_fl = th.log(snr_fwd.reshape(snr_fwd.shape[0], -1).detach())
-
+    def snr_plots(self, batch, cond, task_id, step):
+        logs = {}
+        snr_fwd_fl = []
+        snr_bwd_fl = []
+        kl_fl = []
+        num_examples = 40
+        for task in range(task_id+1):
+            id_curr = th.where(cond['y'] == task)[0][:num_examples]
+            x = batch[id_curr]
+            x = x.to(dist_util.dev())
+            task_tsr = th.tensor([task]*num_examples, device=dist_util.dev())
+            N_pts = 2
+            snr_fwd, snr_bwd, kl, x_q, x_p = self.get_snr_encode(x, task_tsr, save_x=N_pts)
+            x_p_q = th.cat([th.cat([x_q[j::N_pts], x_p[j::N_pts]]) for j in range(N_pts)])
+            x_p_q_vis = make_grid(x_p_q.detach().cpu(), x_q.shape[0]//N_pts,
+                                  normalize=True, scale_each=True)
+            logs[f"plot/x_{task}"] = wandb.Image(x_p_q_vis)
+            kl_fl.append(kl.cpu())
+            snr_bwd_fl.append(snr_bwd.reshape(snr_bwd.shape[0], num_examples, -1).detach().cpu().mean(-1))
+            snr_fwd_fl.append(snr_fwd.reshape(snr_fwd.shape[0], num_examples, -1).detach().cpu().mean(-1))
+        logs["plot/snr_encode"] = self.draw_snr_plot(snr_bwd_fl, snr_fwd_fl, log_scale=True)
+        logs["plot/snr_encode_linear"] = self.draw_snr_plot(snr_bwd_fl, snr_fwd_fl, log_scale=False)
+        fig, axes = plt.subplots(ncols=task_id+1, nrows=1, figsize=(5*(task_id+1), 4),
+                                 sharey=True, constrained_layout=True)
+        if task_id == 0:
+            axes = np.expand_dims(axes, 0)
+        for task in range(task_id+1):
+            time_hist(axes[task], kl_fl[task])
+            axes[task].set_xlabel('T')
+            axes[task].set_title(f'KL (task {task})')
+            axes[task].grid(True)
+        logs["plot/kl"] = wandb.Image(fig)
+        wandb.log(logs, step=step)
 
     @th.no_grad()
-    def get_snr_fwd(self, x):
-        indices_fwd = list(range(self.num_timesteps))
-        shape = x.shape
-        snr = []
-        for i in indices_fwd:
-            t = th.tensor([i] * shape[0], device=dist_util.dev())
-            mu, var, _ = self.diffusion.q_mean_variance(x, t)
-            snr.append(mu**2 / var)
-        return snr
+    def draw_snr_plot(self, snr_bwd_fl, snr_fwd_fl, log_scale=True):
+        n_task = len(snr_bwd_fl)
+        fig, axes = plt.subplots(ncols=n_task, nrows=2, figsize=(5*n_task, 8),
+                                 sharey=True, sharex=True, constrained_layout=True)
+        if n_task == 1:
+            axes = np.expand_dims(axes, 0)
+        for task in range(n_task):
+            fwd = snr_fwd_fl[task]
+            bwd = snr_bwd_fl[task]
+            title = f'SNR (task {task})'
+            if log_scale:
+                title = 'log ' + title
+                fwd = th.log(fwd)
+                bwd = th.log(bwd)
+            time_hist(axes[task, 0], fwd)
+            axes[task, 0].plot(fwd.mean(1))
+            time_hist(axes[task, 1], bwd)
+            axes[task, 1].plot(bwd.mean(1))
+            axes[task, 0].set_xlabel('T')
+            axes[task, 1].set_xlabel('T')
+            axes[task, 0].set_ylabel(title)
+            axes[task, 0].grid(True)
+            axes[task, 1].grid(True)
+
+        axes[0, 0].set_title(f'Forward diffusion ({snr_fwd_fl[task].shape[1]} points)',
+                             fontsize=20)
+        axes[0, 1].set_title(f'Backward diffusion ({snr_fwd_fl[task].shape[1]} points)',
+                             fontsize=20);
+        return wandb.Image(fig)
 
     @th.no_grad()
-    def get_snr_bwd(self, task_id):
-        shape = (task_id.shape[0], self.in_channels, self.image_size, self.image_size)
-        x_curr = th.randn(*shape, device=dist_util.dev())
-        model_kwargs = {
-            "y": th.zeros(n_examples_per_task, device=dist_util.dev()) + task_id
-        }
-        indices_bwd = list(range(self.num_timesteps))[::-1]
+    def get_snr_encode(self, x, task_id, save_x):
         model = self.mp_trainer.model
         model.eval()
-        snr = []
-        for j in indices_bwd:
-            t = th.tensor([j] * shape[0], device=device)
+        model_kwargs = {
+            "y": th.zeros(task_id.shape[0], device=dist_util.dev()) + task_id
+        }
+        indices_fwd = list(range(self.diffusion.num_timesteps))  # [0, 1, ....T]
+        shape = x.shape
+        x_curr = x.clone()
+        x_q = []
+        x_p = []
+        snr_fwd = []
+        snr_bwd = []
+        kl = []
+        for i in indices_fwd:
+            t = th.tensor([i] * shape[0], device=dist_util.dev())
+            # get q(x_{i} | x_{i-1})
+            mu = _extract_into_tensor(np.sqrt(1.0 - self.diffusion.betas), t, shape) * x_curr
+            var = _extract_into_tensor(self.diffusion.betas, t, shape)
+            snr_fwd.append(mu**2 / var)
+            # sample x_{i}
+            noise = th.randn_like(x_curr)
+            x_curr = mu + (var ** 0.5) * noise
+            x_q.append(x_curr[:save_x])
+            # get p(x_{i-1} | x_{i})
             p_out = self.diffusion.p_mean_variance(
                 model, x_curr, t, clip_denoised=False, model_kwargs=model_kwargs
             )
-            snr.append(torch.mean(p_out['mean']**2 / p_out['variance']))
-            noise = th.randn_like(x_curr)
-            nonzero_mask = (
-                (t != 0).float().view(-1, *([1] * (len(x_curr.shape) - 1)))
-            )  # no noise when t == 0
-            x_curr = p_out["mean"] + nonzero_mask * th.exp(0.5 * p_out["log_variance"]) * noise
-        return snr, x_curr
+            x_p.append(p_out['mean'][:save_x] + (p_out['variance'][:save_x] ** 0.5) * th.randn_like(x_curr[:save_x]))
+            snr_bwd.append(p_out['mean']**2 / p_out['variance'])
+            if i > 0:
+                # get q(x_{i-1} | x_{i}, x_0) - posterior
+                true_mean, true_var, true_log_variance_clipped = self.diffusion.q_posterior_mean_variance(
+                    x_start=x, x_t=x_curr, t=t
+                )
+                kl.append(mean_flat(normal_kl(
+                    true_mean, true_log_variance_clipped, p_out["mean"], p_out["log_variance"]
+                    )))
+        return th.stack(snr_fwd), th.stack(snr_bwd), th.stack(kl), th.cat(x_q), th.cat(x_p)
 
 
 def parse_resume_step_from_filename(filename):
@@ -451,9 +521,8 @@ def time_hist(ax, data):
         y_fine[i, :] = np.interp(x_fine, range(num_pt), data[:, i])
     y_fine = y_fine.flatten()
     x_fine = np.matlib.repmat(x_fine, num_ts, 1).flatten()
-
-    cmap = copy(plt.cm.plasma)
+    cmap = copy.copy(plt.cm.BuPu)
     cmap.set_bad(cmap(0))
     h, xedges, yedges = np.histogram2d(x_fine, y_fine, bins=[40, 1000])
-    pcm = ax.pcolormesh(xedges, yedges, h.T, cmap=cmap, norm=LogNorm(vmax=1.5e2), rasterized=True)
-    fig.colorbar(pcm, ax=ax, label="# points", pad=0)
+    pcm = ax.pcolormesh(xedges, yedges, h.T, cmap=cmap, vmax=num_ts, rasterized=True)
+    plt.colorbar(pcm, ax=ax, label="# points", pad=0);
