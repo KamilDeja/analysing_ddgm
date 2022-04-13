@@ -17,7 +17,7 @@ from .losses import normal_kl, discretized_gaussian_log_likelihood
 from .resample import TaskAwareSampler
 
 
-def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
+def get_named_beta_schedule(schedule_name, num_diffusion_timesteps, first_step_beta=None):
     """
     Get a pre-defined beta schedule for the given name.
 
@@ -26,11 +26,16 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     Beta schedules may be added, but should not be removed or changed once
     they are committed to maintain backwards compatibility.
     """
+    if num_diffusion_timesteps < 10:
+        scale = 100 / num_diffusion_timesteps
+        multiply = 0.01
+    else:
+        scale = 1000 / num_diffusion_timesteps
+        multiply = 0.001
     if schedule_name == "linear":
         # Linear schedule from Ho et al, extended to work for any number of
         # diffusion steps.
-        scale = 1000 / num_diffusion_timesteps
-        beta_start = scale * 0.0001
+        beta_start = scale * multiply
         beta_end = scale * 0.02
         return np.linspace(
             beta_start, beta_end, num_diffusion_timesteps, dtype=np.float64
@@ -40,6 +45,16 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
             num_diffusion_timesteps,
             lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2,
         )
+    elif schedule_name == "linear_combine":
+        assert first_step_beta is not None
+        first_step_beta = float(first_step_beta)
+        beta_start = scale * multiply
+        beta_end = scale * 0.02
+        linear_betas = np.linspace(
+            beta_start, beta_end, num_diffusion_timesteps, dtype=np.float64
+        )
+        linear_betas[0] = first_step_beta
+        return linear_betas
     else:
         raise NotImplementedError(f"unknown beta schedule: {schedule_name}")
 
@@ -125,6 +140,7 @@ class GaussianDiffusion:
             model_var_type,
             loss_type,
             rescale_timesteps=False,
+            dae_model=False
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -169,6 +185,7 @@ class GaussianDiffusion:
                 * np.sqrt(alphas)
                 / (1.0 - self.alphas_cumprod)
         )
+        self.dae_model = dae_model
 
     def q_mean_variance(self, x_start, t):
         """
@@ -729,18 +746,23 @@ class GaussianDiffusion:
         )
         kl = normal_kl(
             true_mean, true_log_variance_clipped, out["mean"], out["log_variance"]
-        )
+        )  # Calculate kl for all examples even with timestep=0 It will be overwritten later on
         kl = mean_flat(kl) / np.log(2.0)
+        if self.dae_model:
+            # out["log_variance"] = th.zeros_like(out["log_variance"]) + self.constant_sigma * 2
+            decoder_mse = (out["mean"] - x_start) ** 2
+            decoder_loss_0 = mean_flat(decoder_mse)
+        else:
+            decoder_nll = -discretized_gaussian_log_likelihood(
+                x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
+            )
+            # print(th.exp(-0.5 * out["log_variance"][t==0]).mean().item())
+            assert decoder_nll.shape == x_start.shape
+            decoder_loss_0 = mean_flat(decoder_nll) / np.log(2.0)
 
-        decoder_nll = -discretized_gaussian_log_likelihood(
-            x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
-        )
-        assert decoder_nll.shape == x_start.shape
-        decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
-
-        # At the first timestep return the decoder NLL,
+        # At the first timestep return the decoder NLL or MSE,
         # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
-        output = th.where((t == 0), decoder_nll, kl)
+        output = th.where((t == 0), decoder_loss_0, kl)
         return {"output": output, "pred_xstart": out["pred_xstart"]}
 
     def partial_sample_loop(self, current_model, prev_model, schedule_sampler, task_id, n_examples_per_task, shape,
@@ -824,7 +846,7 @@ class GaussianDiffusion:
         )
         kl = mean_flat(kl) / np.log(2.0)
 
-        return kl.sum()
+        return kl.mean() * self.num_timesteps
 
     def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
         """
@@ -857,7 +879,10 @@ class GaussianDiffusion:
                 model_kwargs=model_kwargs,
             )["output"]
             if self.loss_type == LossType.RESCALED_KL:
-                terms["loss"] *= self.num_timesteps
+                if self.dae_model:
+                    terms["loss"] *= (self.num_timesteps - 1)
+                else:
+                    terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
             model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
 
