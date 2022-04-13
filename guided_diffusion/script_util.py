@@ -202,6 +202,8 @@ def create_model(
         from .two_parts_model import TwoPartsUNetModel as Model
     elif model_name == "TwoPartsUNetModelDAE":
         from .two_parts_model_DAE import TwoPartsUNetModelDAE as Model
+    elif model_name == "TwoPartsUNetModelDAE_EDSR":
+        from .two_parts_model_DAE_EDSR import TwoPartsUNetModelDAE as Model
     else:
         raise NotImplementedError
     return Model(
