@@ -94,6 +94,9 @@ class ImageDataset(Dataset):
         super().__init__()
         self.resolution = resolution
         self.local_images = image_paths[shard:][::num_shards]
+        class_names = [bf.basename(path).split("_")[0] for path in image_paths]
+        self.labels = np.unique(class_names, return_inverse=True)[1]
+        self.number_classes = len(np.unique(class_names))
         self.local_classes = None if classes is None else classes[shard:][::num_shards]
         self.random_crop = random_crop
         self.random_flip = random_flip
@@ -118,10 +121,7 @@ class ImageDataset(Dataset):
 
         arr = arr.astype(np.float32) / 127.5 - 1
 
-        out_dict = {}
-        if self.local_classes is not None:
-            out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
-        return np.transpose(arr, [2, 0, 1]), out_dict
+        return np.transpose(arr, [2, 0, 1]), np.array(self.local_classes[idx], dtype=np.int64)
 
 
 def center_crop_arr(pil_image, image_size):

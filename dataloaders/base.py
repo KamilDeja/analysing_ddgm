@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader, Subset, TensorDataset, ConcatDataset
+from dataloaders.image_datasets import ImageDataset, _list_image_files_recursively
 
 
 class FastCelebA(Dataset):
@@ -346,7 +347,8 @@ def Flowers(dataroot, skip_normalization=False, train_aug=True):
 
 
 def CIFAR100(dataroot, skip_normalization=False, train_aug=False):
-    normalize = transforms.Normalize(mean=[0.507, 0.487, 0.441], std=[0.267, 0.256, 0.276])
+    normalize = transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    # normalize = transforms.Normalize(mean=[0.507, 0.487, 0.441], std=[0.267, 0.256, 0.276])
     # normalize = transforms.Normalize(mean=[0.5], std=[0.5])
 
     if skip_normalization:
@@ -386,3 +388,21 @@ def CIFAR100(dataroot, skip_normalization=False, train_aug=False):
 
     return train_dataset, val_dataset, 32, 3
 
+
+def LSUN(dataroot, skip_normalization=False, train_aug=False):
+    dataset_dir = dataroot + "lsun_bedroom/"
+    all_files = _list_image_files_recursively(dataset_dir)
+    resolution = 256
+    train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
+
+    return train_dataset, train_dataset, resolution, 3
+
+def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 64):
+    dataset_dir = dataroot + "ImageNet/train"
+    all_files = _list_image_files_recursively(dataset_dir)
+    train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
+    # dataset_dir = dataroot + "ImageNet/test"
+    # all_files = _list_image_files_recursively(dataset_dir)
+    # test_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
+
+    return train_dataset, train_dataset, resolution, 3

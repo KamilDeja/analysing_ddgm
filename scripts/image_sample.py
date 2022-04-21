@@ -12,7 +12,7 @@ import torch.distributed as dist
 
 from guided_diffusion import dist_util, logger
 from guided_diffusion.script_util import (
-    NUM_CLASSES,
+    # NUM_CLASSES,
     model_and_diffusion_defaults,
     create_model_and_diffusion,
     add_dict_to_argparser,
@@ -24,6 +24,10 @@ import matplotlib.pyplot as plt
 
 def main():
     args = create_argparser().parse_args()
+    args.num_classes = args.num_tasks
+    os.environ["OPENAI_LOGDIR"] = f"results/{args.experiment_name}"
+    args.model_path = f"results/{args.experiment_name}/" + args.model_path
+
 
     dist_util.setup_dist(args)
     logger.configure()
@@ -46,16 +50,17 @@ def main():
     while len(all_images) * args.batch_size < args.num_samples:
         model_kwargs = {}
         if args.class_cond:
-            classes = th.randint(
-                low=0, high=NUM_CLASSES, size=(args.batch_size,), device=dist_util.dev()
-            )
+            # classes = th.randint(
+            #     low=0, high=NUM_CLASSES, size=(args.batch_size,), device=dist_util.dev()
+            # )
+            classes = th.zeros(size=(args.batch_size,), device=dist_util.dev())
             model_kwargs["y"] = classes
         sample_fn = (
             diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
         )
         sample = sample_fn(
             model,
-            (args.batch_size, 1, args.image_size, args.image_size),
+            (args.batch_size, args.in_channels, args.image_size, args.image_size),
             clip_denoised=args.clip_denoised,
             model_kwargs=model_kwargs,
         )
@@ -100,12 +105,14 @@ def main():
 
 def create_argparser():
     defaults = dict(
+        experiment_name="test",
         clip_denoised=True,
         num_samples=10000,
         batch_size=16,
         use_ddim=False,
         model_path="",
         gpu_id=-1,
+        num_tasks=1,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

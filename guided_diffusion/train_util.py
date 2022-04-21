@@ -16,7 +16,7 @@ from PIL import Image
 from . import dist_util, logger
 from .fp16_util import MixedPrecisionTrainer
 from .nn import update_ema
-from .resample import LossAwareSampler, UniformSampler, TaskAwareSampler
+from .resample import LossAwareSampler, UniformSampler, TaskAwareSampler, DAEOnlySampler
 
 import wandb
 
@@ -147,7 +147,7 @@ class TrainLoop:
         self.generate_previous_samples_continuously = generate_previous_samples_continuously
         self.validator = validator
         if validator is None:
-            self.validation_interval = self.num_steps + 1 #Skipping validation
+            self.validation_interval = self.num_steps + 1  # Skipping validation
         else:
             self.validation_interval = validation_interval
 
@@ -195,6 +195,10 @@ class TrainLoop:
             self.opt.load_state_dict(state_dict)
 
     def run_loop(self):
+        if isinstance(self.schedule_sampler, DAEOnlySampler):
+            plot = self.plot_dae_only
+        else:
+            plot = self.plot
         while (
                 (not self.lr_anneal_steps
                  or self.step + self.resume_step < self.lr_anneal_steps) and (self.step < self.num_steps)
@@ -213,20 +217,25 @@ class TrainLoop:
                     return
             if self.step > 0:
                 if self.step % self.plot_interval == 0:
-                    self.plot(self.task_id, self.step)
+                    plot(self.task_id, self.step)
                 if self.step % self.scheduler_step == 0:
                     self.scheduler.step()
                 if self.step % self.validation_interval == 0:
                     logger.log(f"Validation for step {self.step}")
-                    fid_result, precision, recall = self.validator.calculate_results(train_loop=self,
-                                                                                     task_id=self.task_id,
-                                                                                     dataset=self.params.dataset,
-                                                                                     n_generated_examples=self.params.n_examples_validation,
-                                                                                     batch_size=self.params.microbatch if self.params.microbatch > 0 else self.params.batch_size)
-                    wandb.log({"fid": fid_result})
-                    wandb.log({"precision": precision})
-                    wandb.log({"recall": recall})
-                    logger.log(f"FID: {fid_result}, Prec: {precision}, Rec: {recall}")
+                    if self.diffusion.dae_model:
+                        dae_result = self.validate_dae()
+                        logger.log(f"DAE test MAE: {dae_result:.3}")
+                        wandb.log({"dae_test_MAE": dae_result})
+                    if not isinstance(self.schedule_sampler, DAEOnlySampler):
+                        fid_result, precision, recall = self.validator.calculate_results(train_loop=self,
+                                                                                         task_id=self.task_id,
+                                                                                         dataset=self.params.dataset,
+                                                                                         n_generated_examples=self.params.n_examples_validation,
+                                                                                         batch_size=self.params.microbatch if self.params.microbatch > 0 else self.params.batch_size)
+                        wandb.log({"fid": fid_result})
+                        wandb.log({"precision": precision})
+                        wandb.log({"recall": recall})
+                        logger.log(f"FID: {fid_result}, Prec: {precision}, Rec: {recall}")
 
             self.step += 1
         # Save the last checkpoint if it wasn't already saved.
@@ -234,7 +243,7 @@ class TrainLoop:
             if (self.step - 1) % self.save_interval != 0:
                 self.save(self.task_id)
         if (self.step - 1) % self.plot_interval != 0:
-            self.plot(self.task_id, self.step)
+            plot(self.task_id, self.step)
 
     def run_step(self, batch, cond):
         self.forward_backward(batch, cond)
@@ -391,6 +400,63 @@ class TrainLoop:
         out_plot = os.path.join(logger.get_dir(), f"samples/task_{task_id:02d}_step_{step:06d}")
         plt.savefig(out_plot)
 
+    @th.no_grad()
+    def plot_dae_only(self, task_id, step, num_exammples=8):
+        test_loader = self.validator.dataloaders[self.task_id]
+        diffs = []
+        i = 0
+        t = th.tensor(0, device=dist_util.dev())
+        self.model.eval()
+        batch, cond = next(iter(test_loader))
+        batch = batch.to(dist_util.dev())
+        x_t = self.diffusion.q_sample(batch, t)
+        t = th.tensor([0] * x_t.shape[0], device=x_t.device)
+        with th.no_grad():
+            out = self.diffusion.p_sample(
+                self.model,
+                x_t,
+                t,
+                clip_denoised=False,
+            )
+            img = out["sample"]
+        self.model.train()
+        samples_grid = make_grid(img[:num_exammples].detach().cpu(), num_exammples, normalize=True).permute(1, 2, 0)
+        sample_wandb = wandb.Image(samples_grid.permute(2, 0, 1), caption=f"sample_task_{task_id}")
+        wandb.log({"sampled_images": sample_wandb})
+
+        plt.imshow(samples_grid)
+        plt.axis('off')
+        if not os.path.exists(os.path.join(logger.get_dir(), f"samples/")):
+            os.makedirs(os.path.join(logger.get_dir(), f"samples/"))
+        out_plot = os.path.join(logger.get_dir(), f"samples/task_{task_id:02d}_step_{step:06d}")
+        plt.savefig(out_plot)
+
+    def validate_dae(self):
+        test_loader = self.validator.dataloaders[self.task_id]
+        diffs = []
+        i = 0
+        t = th.tensor(0, device=dist_util.dev())
+        self.model.eval()
+        for batch, cond in test_loader:
+            batch = batch.to(dist_util.dev())
+            x_t = self.diffusion.q_sample(batch, t)
+            t = th.tensor([0] * x_t.shape[0], device=x_t.device)
+            with th.no_grad():
+                out = self.diffusion.p_sample(
+                    self.model,
+                    x_t,
+                    t,
+                    clip_denoised=False,
+                )
+                img = out["sample"]
+            diff = th.abs(batch - img).mean().item()
+            diffs.append(diff)
+            # if i > 10:
+            #     break
+            i += 1
+        self.model.train()
+        return np.mean(diffs)
+
 
 def parse_resume_step_from_filename(filename):
     """
@@ -437,3 +503,5 @@ def log_loss_dict(diffusion, ts, losses):
             for sub_t, sub_loss in zip(ts.cpu().numpy(), values.detach().cpu().numpy()):
                 quartile = int(4 * sub_t / diffusion.num_timesteps)
                 logger.logkv_mean(f"{key}_q{quartile}", sub_loss)
+                if sub_t == 0:
+                    logger.logkv_mean(f"{key}_0_step", sub_loss)

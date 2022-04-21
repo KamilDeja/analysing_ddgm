@@ -19,6 +19,7 @@ class EDSR(nn.Module):
         super(EDSR, self).__init__()
 
         n_resblocks = args.n_resblocks
+        self.n_resblocks = n_resblocks
         n_feats = args.n_feats
         kernel_size = 3 
         scale = args.scale[0]
@@ -28,19 +29,23 @@ class EDSR(nn.Module):
             self.url = url[url_name]
         else:
             self.url = None
-        self.sub_mean = common.MeanShift(args.rgb_range)
-        self.add_mean = common.MeanShift(args.rgb_range, sign=1)
+        if args.n_colors==3:
+            self.sub_mean = common.MeanShift(args.rgb_range)
+            self.add_mean = common.MeanShift(args.rgb_range, sign=1)
+        else:
+            self.sub_mean = common.MeanShiftOneChannel(args.rgb_range)
+            self.add_mean = common.MeanShiftOneChannel(args.rgb_range, sign=1)
 
         # define head module
         m_head = [conv(args.n_colors, n_feats, kernel_size)]
 
         # define body module
-        m_body = [
+        self.m_body = [
             common.ResBlock(
                 conv, n_feats, kernel_size, act=act, res_scale=args.res_scale
             ) for _ in range(n_resblocks)
         ]
-        m_body.append(conv(n_feats, n_feats, kernel_size))
+        self.m_body.append(conv(n_feats, n_feats, kernel_size))
 
         # define tail module
         m_tail = [
@@ -49,20 +54,26 @@ class EDSR(nn.Module):
         ]
 
         self.head = nn.Sequential(*m_head)
-        self.body = nn.Sequential(*m_body)
+        self.body = nn.Sequential(*self.m_body)
         self.tail = nn.Sequential(*m_tail)
 
     def forward(self, x):
-        x = self.sub_mean(x)
+        # x = self.sub_mean(x)
         x = self.head(x)
 
-        res = self.body(x)
-        res += x
+        res_out = []
+        res = x
+        for i in range(self.n_resblocks):
+            res = self.m_body[i](res)
+            res_out.append(res)
+            res += x
+        # res = self.body(x)
+
 
         x = self.tail(res)
-        x = self.add_mean(x)
+        # x = self.add_mean(x)
 
-        return x 
+        return x, res_out
 
     def load_state_dict(self, state_dict, strict=True):
         own_state = self.state_dict()

@@ -22,7 +22,9 @@ def create_named_schedule_sampler(name, diffusion, args):
     elif name == "task_aware":
         return TaskAwareSampler(diffusion, args.alpha, args.beta)
     elif name == "dae_uniform":
-        return DAEUniformSAmpler(diffusion, float(args.first_step_beta) * args.diffusion_steps)
+        return DAEUniformSampler(diffusion, float(args.first_step_beta) * args.diffusion_steps)
+    elif name == "only_dae":
+        return DAEOnlySampler(diffusion)
     else:
         raise NotImplementedError(f"unknown schedule sampler: {name}")
 
@@ -74,7 +76,16 @@ class UniformSampler(ScheduleSampler):
     def weights(self):
         return self._weights
 
-class DAEUniformSAmpler(ScheduleSampler):
+class DAEOnlySampler(ScheduleSampler):
+    def __init__(self, diffusion):
+        self.diffusion = diffusion
+        self._weights = np.zeros([diffusion.num_timesteps])
+        self._weights[0] = 1
+
+    def weights(self):
+        return self._weights
+
+class DAEUniformSampler(ScheduleSampler):
     def __init__(self, diffusion, zero_step_weight):
         self.diffusion = diffusion
         self._weights = np.ones([diffusion.num_timesteps])

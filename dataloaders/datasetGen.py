@@ -61,7 +61,7 @@ def data_split(dataset, dataset_name, return_classes=False, return_task_as_class
             }
     elif num_batches == 1:
         batch_split = {
-            0: range(10)
+            0: range(num_classes)
         }
     else:
         if dataset_name in ["omniglot", "doublemnist", "flowers"]:

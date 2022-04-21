@@ -91,7 +91,7 @@ def main():
         val_loaders = []
         for task_id in range(args.num_tasks):
             val_data = val_dataset_splits[task_id]
-            val_loader = data.DataLoader(dataset=val_data, batch_size=args.batch_size, shuffle=False)
+            val_loader = data.DataLoader(dataset=val_data, batch_size=args.batch_size, shuffle=False, drop_last=True)
             val_loaders.append(val_loader)
 
         stats_file_name = f"seed_{args.seed}_tasks_{args.num_tasks}_random_{args.random_split}_dirichlet_{args.dirichlet}_limit_{args.limit_data}"
@@ -190,7 +190,7 @@ def main():
         fid_table[task_id] = OrderedDict()
         precision_table[task_id] = OrderedDict()
         recall_table[task_id] = OrderedDict()
-        if args.skip_validation:
+        if args.skip_validation or (args.schedule_sampler == "only_dae"):
             for j in range(task_id + 1):
                 fid_table[j][task_id] = -1
                 precision_table[j][task_id] = -1

@@ -32,7 +32,7 @@ class Validator:
             net.eval()
             self.dims = 128 if dataset in ["Omniglot", "DoubleMNIST"] else 84  # 128
             self.score_model_func = net.part_forward
-        elif dataset.lower() in ["celeba", "doublemnist", "fashionmnist", "flowers", "cern", "cifar10"]:
+        elif dataset.lower() in ["celeba", "doublemnist", "fashionmnist", "flowers", "cern", "cifar10", "lsun", "imagenet"]:
             from evaluations.evaluation_models.inception import InceptionV3
             self.dims = 2048
             block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[self.dims]
@@ -41,6 +41,8 @@ class Validator:
                 model = model.to(score_model_device)
             model.eval()
             self.score_model_func = lambda batch: model(batch)[0]
+        else:
+            raise NotImplementedError
         self.stats_file_name = f"{stats_file_name}_dims_{self.dims}"
 
     @torch.no_grad()
@@ -74,8 +76,8 @@ class Validator:
                                                    batch_size=batch_size)
         examples_to_generate = n_generated_examples
         i = 0
-        if self.score_model_device == torch.device("cpu"):
-            batch_size = 4500
+        # if self.score_model_device == torch.device("cpu"):
+        #     batch_size = 1000
         while examples_to_generate > 0:
             example = examples[i * batch_size:min(n_generated_examples, (i + 1) * batch_size)].to(
                 self.score_model_device)

@@ -145,7 +145,7 @@ def create_model_and_diffusion(
         rescale_timesteps=rescale_timesteps,
         rescale_learned_sigmas=rescale_learned_sigmas,
         timestep_respacing=timestep_respacing,
-        dae_model=model_name=="TwoPartsUNetModelDAE"
+        dae_model=model_name in ["TwoPartsUNetModelDAE", "TwoPartsUNetModelDAE_EDSR"]
     )
     return model, diffusion
 
