@@ -14,6 +14,7 @@ import numpy as np
 from PIL import Image
 import numpy.matlib
 from matplotlib.colors import LogNorm
+import matplotlib as mpl
 
 from . import dist_util, logger
 from .fp16_util import MixedPrecisionTrainer
@@ -203,18 +204,20 @@ class TrainLoop:
             batch, cond = next(self.data)
             self.run_step(batch, cond)
             if self.step % self.log_interval == 0:
-                wandb.log(logger.getkvs())
+                wandb.log(logger.getkvs(), step=self.step)
                 logger.dumpkvs()
             if (not self.skip_save) & (self.step % self.save_interval == 0):
                 self.save(self.task_id)
                 # Run for a finite amount of time in integration tests.
                 if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
                     return
+            # make SNR plots
+            if self.params.snr_log_interval > 0 and self.step % self.params.snr_log_interval == 0:
+                self.snr_plots(batch, cond, self.task_id, self.step)
             if self.step > 0:
                 if self.step % self.plot_interval == 0:
                     self.plot(self.task_id, self.step)
-                    if self.params.log_snr:
-                        self.snr_plots(batch, cond, self.task_id, self.step)
+
                 if self.step % self.scheduler_step == 0:
                     self.scheduler.step()
             self.step += 1
@@ -224,8 +227,9 @@ class TrainLoop:
                 self.save(self.task_id)
         if (self.step - 1) % self.plot_interval != 0:
             self.plot(self.task_id, self.step)
-            if self.params.log_snr:
-                self.snr_plots(batch, cond, self.task_id, self.step)
+        if self.params.snr_log_interval > 0:
+            self.snr_plots(batch, cond, self.task_id, self.step)
+            self.draw_final_snr_plot(self.step, self.task_id)
 
     def run_step(self, batch, cond):
         self.forward_backward(batch, cond)
@@ -387,7 +391,7 @@ class TrainLoop:
         snr_fwd_fl = []
         snr_bwd_fl = []
         kl_fl = []
-        num_examples = 100
+        num_examples = 50
         for task in range(task_id+1):
             id_curr = th.where(cond['y'] == task)[0][:num_examples]
             x = batch[id_curr]
@@ -411,6 +415,10 @@ class TrainLoop:
             snr_fwd_fl.append(snr_fwd.reshape(snr_fwd.shape[0], num_examples, -1).detach().cpu().mean(-1))
         logs["plot/snr_encode"] = self.draw_snr_plot(snr_bwd_fl, snr_fwd_fl, log_scale=True)
         logs["plot/snr_encode_linear"] = self.draw_snr_plot(snr_bwd_fl, snr_fwd_fl, log_scale=False)
+        # save the averages
+        th.save(th.stack([s.mean(1) for s in snr_bwd_fl], 0),
+                os.path.join(wandb.run.dir, f'bwd_snr_step_{step}.npy'))
+
         fig, axes = plt.subplots(ncols=task_id+1, nrows=1, figsize=(5*(task_id+1), 4),
                                  sharey=True, constrained_layout=True)
         if task_id == 0:
@@ -421,6 +429,54 @@ class TrainLoop:
             axes[task].set_title(f'KL (task {task})')
             axes[task].grid(True)
         logs["plot/kl"] = wandb.Image(fig)
+        wandb.log(logs, step=step)
+
+    @th.no_grad()
+    def draw_final_snr_plot(self, step, task_id):
+        av_snrs = []
+        save_steps = list(range(0, step+1, self.params.snr_log_interval))
+        if save_steps[-1] < step:
+            save_steps.append(step)
+        for s in save_steps:
+            # N_tasks x T each
+            av_snrs.append(th.load(os.path.join(wandb.run.dir, f'bwd_snr_step_{s}.npy')))
+
+        # linear
+        cmap = plt.get_cmap('RdYlGn', len(av_snrs))
+        fig, axes = plt.subplots(ncols=task_id+1, nrows=1, figsize=(5*(task_id+1), 4),
+                                 sharey=True, constrained_layout=True)
+        if task_id == 0:
+            axes = np.expand_dims(axes, 0)
+        for task in range(task_id+1):
+            snr_to_plot = [s[task] for s in av_snrs]
+            for i in range(len(snr_to_plot)):
+                axes[task].plot(snr_to_plot[i], c=cmap(i))
+            axes[task].grid(True)
+        # Normalizer
+        norm = mpl.colors.Normalize(vmin=0, vmax=len(av_snrs)-1)
+
+        # creating ScalarMappable
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ticks=np.linspace(0, len(av_snrs)-1, len(av_snrs)))
+        cbar.ax.set_yticklabels(save_steps)
+        logs = {"plot/final_snr_linear": wandb.Image(fig)}
+        # log scale
+        fig, axes = plt.subplots(ncols=task_id+1, nrows=1, figsize=(5*(task_id+1), 4),
+                                 sharey=True, constrained_layout=True)
+        if task_id == 0:
+            axes = np.expand_dims(axes, 0)
+        for task in range(task_id+1):
+            snr_to_plot = [s[task] for s in av_snrs]
+            for i in range(len(snr_to_plot)):
+                axes[task].plot(th.log(snr_to_plot[i]), c=cmap(i))
+            axes[task].grid(True)
+        # Normalizer
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ticks=np.linspace(0, len(av_snrs)-1, len(av_snrs)))
+        cbar.ax.set_yticklabels(save_steps)
+        logs["plot/final_snr_log"] = wandb.Image(fig)
         wandb.log(logs, step=step)
 
     @th.no_grad()
