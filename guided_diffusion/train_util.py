@@ -210,7 +210,7 @@ class TrainLoop:
             if self.step % self.log_interval == 0:
                 wandb.log(logger.getkvs())
                 logger.dumpkvs()
-            if (not self.skip_save) & (self.step % self.save_interval == 0):
+            if (not self.skip_save) & (self.step % self.save_interval == 0)  & (self.step != 0):
                 self.save(self.task_id)
                 # Run for a finite amount of time in integration tests.
                 if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
@@ -366,6 +366,8 @@ class TrainLoop:
                 tasks = th.zeros(n_examples_per_task, device=dist_util.dev()) + task_id
             else:
                 tasks = th.tensor((list(range(task_id + 1)) * (n_examples_per_task)), device=dist_util.dev()).sort()[0]
+        else:
+            tasks = None
         i = 0
         while len(all_images) < total_num_exapmles:
 
@@ -451,8 +453,8 @@ class TrainLoop:
                 img = out["sample"]
             diff = th.abs(batch - img).mean().item()
             diffs.append(diff)
-            # if i > 10:
-            #     break
+            if i > 100:
+                break
             i += 1
         self.model.train()
         return np.mean(diffs)

@@ -85,13 +85,19 @@ def main():
                                                                              limit_data=args.limit_data,
                                                                              dirichlet_split_alpha=args.dirichlet,
                                                                              reverse=args.reverse,
-                                                                             limit_classes=args.limit_classes)
+                                                                             limit_classes=args.limit_classes,
+                                                                             val_size=0 if args.validate_on_train else 0.3)
 
     if not args.skip_validation:
         val_loaders = []
         for task_id in range(args.num_tasks):
-            val_data = val_dataset_splits[task_id]
-            val_loader = data.DataLoader(dataset=val_data, batch_size=args.batch_size, shuffle=False, drop_last=True)
+            if not args.validate_on_train:
+                val_data = val_dataset_splits[task_id]
+            else:
+                val_data = train_dataset_splits[task_id]
+            val_loader = data.DataLoader(dataset=val_data,
+                                         batch_size=args.microbatch if args.microbatch > 0 else args.batch_size,
+                                         shuffle=args.schedule_sampler == "only_dae", drop_last=True)
             val_loaders.append(val_loader)
 
         stats_file_name = f"seed_{args.seed}_tasks_{args.num_tasks}_random_{args.random_split}_dirichlet_{args.dirichlet}_limit_{args.limit_data}"
@@ -186,7 +192,20 @@ def main():
             validator=validator,
             validation_interval=args.validation_interval
         )
-        train_loop.run_loop()
+        if args.load_model_path is None:
+            train_loop.run_loop()
+        else:
+            if args.load_pretrained_for_dae:
+                model.unet_2.load_state_dict(
+                    dist_util.load_state_dict(args.load_model_path, map_location="cpu")
+                )
+                model.to(dist_util.dev())
+            else:
+                model.load_state_dict(
+                    dist_util.load_state_dict(args.load_model_path, map_location="cpu")
+                )
+                # model.load_state_dict(torch.load(args.load_model_path, map_location="cpu"))
+                model.to(dist_util.dev())
         fid_table[task_id] = OrderedDict()
         precision_table[task_id] = OrderedDict()
         recall_table[task_id] = OrderedDict()
@@ -248,12 +267,15 @@ def create_argparser():
         skip_validation=False,
         n_examples_validation=5000,
         validation_interval=25000,
+        validate_on_train=True,
         use_gpu_for_validation=True,
         n_generated_examples_per_task=1000,
         first_task_num_steps=5000,
         skip_gradient_thr=-1,
         generate_previous_examples_at_start_of_new_task=False,
-        generate_previous_samples_continuously=True
+        generate_previous_samples_continuously=True,
+        load_model_path=None,
+        load_pretrained_for_dae=False
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

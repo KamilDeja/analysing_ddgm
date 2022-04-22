@@ -32,7 +32,8 @@ class Validator:
             net.eval()
             self.dims = 128 if dataset in ["Omniglot", "DoubleMNIST"] else 84  # 128
             self.score_model_func = net.part_forward
-        elif dataset.lower() in ["celeba", "doublemnist", "fashionmnist", "flowers", "cern", "cifar10", "lsun", "imagenet"]:
+        elif dataset.lower() in ["celeba", "doublemnist", "fashionmnist", "flowers", "cern", "cifar10", "lsun",
+                                 "imagenet"]:
             from evaluations.evaluation_models.inception import InceptionV3
             self.dims = 2048
             block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[self.dims]
@@ -61,6 +62,7 @@ class Validator:
 
         print("Calculating FID:")
         if not precalculated_statistics:
+            print("Calculating original statistics")
             for idx, batch in enumerate(test_loader):
                 x, cond = batch
                 x = x.to(self.device)
@@ -69,6 +71,11 @@ class Validator:
                 if dataset.lower() in ["fashionmnist", "doublemnist"]:
                     x = x.repeat([1, 3, 1, 1])
                 distribution_orig.append(self.score_model_func(x.to(self.score_model_device)).cpu().detach().numpy())
+                if idx % 10 == 0:
+                    print(idx, len(test_loader))
+
+            distribution_orig = np.array(np.concatenate(distribution_orig)).reshape(-1, self.dims)
+            np.save(stats_file_path, distribution_orig)
 
         examples, _ = train_loop.generate_examples(task_id=task_id,
                                                    n_examples_per_task=n_generated_examples,
@@ -79,20 +86,17 @@ class Validator:
         # if self.score_model_device == torch.device("cpu"):
         #     batch_size = 1000
         while examples_to_generate > 0:
+            print(examples_to_generate)
             example = examples[i * batch_size:min(n_generated_examples, (i + 1) * batch_size)].to(
                 self.score_model_device)
             if dataset.lower() in ["fashionmnist", "doublemnist"]:
                 example = example.repeat([1, 3, 1, 1])
             distribution_gen.append(self.score_model_func(example).cpu().detach())  # .numpy().reshape(-1, self.dims))
             examples_to_generate -= batch_size
-            print(examples_to_generate)
             # distribution_gen = self.score_model_func(example).cpu().numpy().reshape(-1, self.dims)
 
         distribution_gen = torch.cat(distribution_gen).numpy().reshape(-1, self.dims)
         # distribution_gen = np.array(np.concatenate(distribution_gen)).reshape(-1, self.dims)
-        if not precalculated_statistics:
-            distribution_orig = np.array(np.concatenate(distribution_orig)).reshape(-1, self.dims)
-            np.save(stats_file_path, distribution_orig)
 
         precision, recall = compute_prd_from_embedding(
             eval_data=distribution_orig[np.random.choice(len(distribution_orig), len(distribution_gen), False)],
