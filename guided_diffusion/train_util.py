@@ -210,7 +210,7 @@ class TrainLoop:
             if self.step % self.log_interval == 0:
                 wandb.log(logger.getkvs())
                 logger.dumpkvs()
-            if (not self.skip_save) & (self.step % self.save_interval == 0)  & (self.step != 0):
+            if (not self.skip_save) & (self.step % self.save_interval == 0) & (self.step != 0):
                 self.save(self.task_id)
                 # Run for a finite amount of time in integration tests.
                 if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
@@ -325,20 +325,27 @@ class TrainLoop:
         logger.logkv("samples", (self.step + self.resume_step + 1) * self.global_batch)
 
     def save(self, task_id):
-        def save_checkpoint(rate, params):
-            state_dict = self.mp_trainer.master_params_to_state_dict(params)
+        def save_checkpoint(rate, state_dict, suffix=""):
             if dist.get_rank() == 0:
-                logger.log(f"saving model {rate}...")
+                logger.log(f"saving model {rate} {suffix}...")
                 if not rate:
-                    filename = f"model{(self.step + self.resume_step):06d}_{task_id}.pt"
+                    filename = f"model{(self.step + self.resume_step):06d}_{task_id}{suffix}.pt"
                 else:
-                    filename = f"ema_{rate}_{(self.step + self.resume_step):06d}_{task_id}.pt"
+                    filename = f"ema_{rate}_{(self.step + self.resume_step):06d}_{task_id}{suffix}.pt"
                 with bf.BlobFile(bf.join(get_blob_logdir(), filename), "wb") as f:
                     th.save(state_dict, f)
 
-        save_checkpoint(0, self.mp_trainer.master_params)
-        for rate, params in zip(self.ema_rate, self.ema_params):
-            save_checkpoint(rate, params)
+        if self.params.model_name == "UNetModel":
+            state_dict = self.mp_trainer.master_params_to_state_dict(self.mp_trainer.master_params)
+            save_checkpoint(0, state_dict)
+        else:
+            state_dict_1, state_dict_2 = self.mp_trainer.master_params_to_state_dict_DAE(self.mp_trainer.master_params)
+            save_checkpoint(0, state_dict_1, suffix="_part_1")
+            if state_dict_2 is not None:
+                save_checkpoint(0, state_dict_2, suffix="_part_2")
+
+        # for rate, params in zip(self.ema_rate, self.ema_params):
+        #     save_checkpoint(rate, params)
 
         # if dist.get_rank() == 0:
         #     with bf.BlobFile(
@@ -383,6 +390,7 @@ class TrainLoop:
                 clip_denoised=False, model_kwargs=model_kwargs,
             )
             all_images.extend(sample.cpu())
+            print(f"generated: {len(all_images)}/{total_num_exapmles}")
             i += 1
         model.train()
         all_images = th.stack(all_images, 0)
@@ -422,7 +430,8 @@ class TrainLoop:
             )
             img = out["sample"]
         self.model.train()
-        samples_grid = make_grid(img[:num_exammples].detach().cpu(), num_exammples, normalize=True).permute(1, 2, 0)
+        to_plot = th.cat([batch[:num_exammples], x_t[:num_exammples],img[:num_exammples]])
+        samples_grid = make_grid(to_plot.detach().cpu(), num_exammples, normalize=True).permute(1, 2, 0)
         sample_wandb = wandb.Image(samples_grid.permute(2, 0, 1), caption=f"sample_task_{task_id}")
         wandb.log({"sampled_images": sample_wandb})
 

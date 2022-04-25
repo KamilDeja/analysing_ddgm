@@ -70,7 +70,8 @@ class TwoPartsUNetModelDAE(nn.Module):
             use_scale_shift_norm=False,
             resblock_updown=False,
             use_new_attention_order=False,
-            model_switching_timestep=None
+            model_switching_timestep=None,
+            dae_only=False
     ):
         super().__init__()
 

@@ -243,6 +243,23 @@ class MixedPrecisionTrainer:
             self.model, self.param_groups_and_shapes, master_params, self.use_fp16
         )
 
+    def master_params_to_state_dict_DAE(self, master_params):
+        param_groups_and_shapes_1 = get_param_groups_and_shapes(
+                self.model.unet_1.named_parameters()
+            )
+        if self.model.unet_2 is not None:
+            param_groups_and_shapes_2 = get_param_groups_and_shapes(
+                    self.model.unet_2.named_parameters()
+                )
+            return master_params_to_state_dict(
+                self.model.unet_1, param_groups_and_shapes_1, list(self.model.unet_1.parameters()), self.use_fp16
+            ), master_params_to_state_dict(
+                self.model.unet_2, param_groups_and_shapes_2, list(self.model.unet_2.parameters()), self.use_fp16
+            )
+        return master_params_to_state_dict(
+            self.model.unet_1, param_groups_and_shapes_1, list(self.model.unet_1.parameters()), self.use_fp16
+        ), None
+
     def state_dict_to_master_params(self, state_dict):
         return state_dict_to_master_params(self.model, state_dict, self.use_fp16)
 

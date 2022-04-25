@@ -57,7 +57,8 @@ class TwoPartsUNetModelDAE(nn.Module):
             resblock_updown=False,
             use_new_attention_order=False,
             model_switching_timestep=None,
-            constant_sigma=1e-5
+            constant_sigma=1e-5,
+            dae_only=False
     ):
         super().__init__()
 
@@ -80,7 +81,7 @@ class TwoPartsUNetModelDAE(nn.Module):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
 
-        self.switching_point = 1  # model_switching_timestep
+        # self.switching_point = 1  # model_switching_timestep
 
         self.unet_1 = UNetModel(image_size,
                                 in_channels,
@@ -101,25 +102,28 @@ class TwoPartsUNetModelDAE(nn.Module):
                                 use_scale_shift_norm=use_scale_shift_norm,
                                 resblock_updown=resblock_updown,
                                 use_new_attention_order=use_new_attention_order)
-        self.unet_2 = UNetModel(image_size,
-                                in_channels,
-                                model_channels,
-                                out_channels,
-                                num_res_blocks,
-                                attention_resolutions,
-                                dropout,
-                                channel_mult,
-                                conv_resample,
-                                dims,
-                                num_classes,
-                                use_checkpoint,
-                                use_fp16,
-                                num_heads,
-                                num_head_channels,
-                                num_heads_upsample,
-                                use_scale_shift_norm,
-                                resblock_updown,
-                                use_new_attention_order)
+        if dae_only:
+            self.unet_2 = None
+        else:
+            self.unet_2 = UNetModel(image_size,
+                                    in_channels,
+                                    model_channels,
+                                    out_channels,
+                                    num_res_blocks,
+                                    attention_resolutions,
+                                    dropout,
+                                    channel_mult,
+                                    conv_resample,
+                                    dims,
+                                    num_classes,
+                                    use_checkpoint,
+                                    use_fp16,
+                                    num_heads,
+                                    num_head_channels,
+                                    num_heads_upsample,
+                                    use_scale_shift_norm,
+                                    resblock_updown,
+                                    use_new_attention_order)
 
     def forward(self, x, timesteps, y=None):
         """
@@ -138,6 +142,9 @@ class TwoPartsUNetModelDAE(nn.Module):
             # x_1[:,1] = th.zeros_like(x_1[:,1]) + self.constant_sigma
             out[timesteps_unet_1] = x_1
         if timesteps_unet_2.sum() > 0:
-            x_2 = self.unet_2(x[timesteps_unet_2], timesteps[timesteps_unet_2], y[timesteps_unet_2])
+            if y is not None:  # self.num_classes is not None:
+                x_2 = self.unet_2(x[timesteps_unet_2], timesteps[timesteps_unet_2], y[timesteps_unet_2])
+            else:
+                x_2 = self.unet_2(x[timesteps_unet_2], timesteps[timesteps_unet_2])
             out[timesteps_unet_2] = x_2
         return out

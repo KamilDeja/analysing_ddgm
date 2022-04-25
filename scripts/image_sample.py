@@ -36,9 +36,17 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
-    model.load_state_dict(
-        dist_util.load_state_dict(args.model_path, map_location="cpu")
-    )
+    if args.model_name == "UNetModel":
+        model.load_state_dict(
+            dist_util.load_state_dict(args.model_path, map_location="cpu")
+        )
+    else:
+        model.unet_1.load_state_dict(
+            dist_util.load_state_dict(args.model_path + "_part_1.pt", map_location="cpu")
+        )
+        model.unet_2.load_state_dict(
+            dist_util.load_state_dict(args.model_path + "_part_2.pt", map_location="cpu")
+        )
     model.to(dist_util.dev())
     if args.use_fp16:
         model.convert_to_fp16()
@@ -106,7 +114,7 @@ def main():
 def create_argparser():
     defaults = dict(
         experiment_name="test",
-        clip_denoised=True,
+        clip_denoised=False,
         num_samples=10000,
         batch_size=16,
         use_ddim=False,

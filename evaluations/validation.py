@@ -93,6 +93,7 @@ class Validator:
                 example = example.repeat([1, 3, 1, 1])
             distribution_gen.append(self.score_model_func(example).cpu().detach())  # .numpy().reshape(-1, self.dims))
             examples_to_generate -= batch_size
+            i += 1
             # distribution_gen = self.score_model_func(example).cpu().numpy().reshape(-1, self.dims)
 
         distribution_gen = torch.cat(distribution_gen).numpy().reshape(-1, self.dims)

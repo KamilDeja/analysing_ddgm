@@ -112,6 +112,7 @@ def create_model_and_diffusion(
         model_name,
         model_switching_timestep,
         num_classes=None,
+        dae_only=False
 ):
     model = create_model(
         image_size,
@@ -133,7 +134,8 @@ def create_model_and_diffusion(
         resblock_updown=resblock_updown,
         use_fp16=use_fp16,
         use_new_attention_order=use_new_attention_order,
-        num_classes=num_classes
+        num_classes=num_classes,
+        dae_only = dae_only
     )
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
@@ -171,6 +173,7 @@ def create_model(
         use_fp16=False,
         use_new_attention_order=False,
         num_classes=None,
+        dae_only=False
 ):
     if channel_mult == "":
         if image_size == 512:
@@ -224,7 +227,8 @@ def create_model(
         use_scale_shift_norm=use_scale_shift_norm,
         resblock_updown=resblock_updown,
         use_new_attention_order=use_new_attention_order,
-        model_switching_timestep=model_switching_timestep
+        model_switching_timestep=model_switching_timestep,
+        dae_only=dae_only
     )
 
 def create_classifier_and_diffusion(

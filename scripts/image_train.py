@@ -66,7 +66,7 @@ def main():
     args.num_classes = args.num_tasks  # n_classes
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(
-        **args_to_dict(args, model_and_diffusion_defaults().keys())
+        **args_to_dict(args, model_and_diffusion_defaults().keys()), dae_only=args.schedule_sampler == "only_dae"
     )
     if not os.environ.get("WANDB_MODE") == "disabled":
         wandb.watch(model, log_freq=10)
@@ -77,7 +77,7 @@ def main():
 
     train_dataset_splits, val_dataset_splits, task_output_space = data_split(dataset=train_dataset,
                                                                              return_classes=args.class_cond,
-                                                                             return_task_as_class=args.use_task_index,
+                                                                             return_task_as_class=args.use_task_index and args.class_cond,
                                                                              dataset_name=args.dataset.lower(),
                                                                              num_batches=args.num_tasks,
                                                                              num_classes=n_classes,
@@ -195,17 +195,22 @@ def main():
         if args.load_model_path is None:
             train_loop.run_loop()
         else:
-            if args.load_pretrained_for_dae:
-                model.unet_2.load_state_dict(
-                    dist_util.load_state_dict(args.load_model_path, map_location="cpu")
-                )
-                model.to(dist_util.dev())
-            else:
+            if args.model_name == "UNetModel":
                 model.load_state_dict(
-                    dist_util.load_state_dict(args.load_model_path, map_location="cpu")
+                    dist_util.load_state_dict(args.load_model_path + ".pt", map_location="cpu")
                 )
-                # model.load_state_dict(torch.load(args.load_model_path, map_location="cpu"))
-                model.to(dist_util.dev())
+            else:
+                model.unet_1.load_state_dict(
+                    dist_util.load_state_dict(args.load_model_path + "_part_1.pt", map_location="cpu")
+                )
+                model.unet_2.load_state_dict(
+                    dist_util.load_state_dict(args.load_model_path + "_part_2.pt", map_location="cpu")
+                )
+            model.to(dist_util.dev())
+        if args.schedule_sampler == "only_dae":
+            train_loop.plot_dae_only(task_id, step=0)
+        else:
+            train_loop.plot(task_id, step=0)
         fid_table[task_id] = OrderedDict()
         precision_table[task_id] = OrderedDict()
         recall_table[task_id] = OrderedDict()
