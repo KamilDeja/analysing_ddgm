@@ -202,7 +202,6 @@ class MixedPrecisionTrainer:
         logger.logkv_mean("param_norm", param_norm)
 
         self.master_params[0].grad.mul_(1.0 / (2 ** self.lg_loss_scale))
-        # TODO: add skip gradients here
         if self.skip_gradient_thr == -1. or grad_norm < self.skip_gradient_thr:
             logger.logkv_mean("skip_update", 0)
             opt.step()
@@ -219,7 +218,6 @@ class MixedPrecisionTrainer:
         grad_norm, param_norm = self._compute_norms()
         logger.logkv_mean("grad_norm", grad_norm)
         logger.logkv_mean("param_norm", param_norm)
-        # TODO: add skip gradients here
         if self.skip_gradient_thr == -1. or grad_norm < self.skip_gradient_thr:
             logger.logkv_mean("skip_update", 0)
             opt.step()
