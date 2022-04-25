@@ -66,7 +66,7 @@ def main():
     args.num_classes = args.num_tasks  # n_classes
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(
-        **args_to_dict(args, model_and_diffusion_defaults().keys())
+        **args_to_dict(args, model_and_diffusion_defaults().keys()), dae_only=args.schedule_sampler == "only_dae"
     )
     if not os.environ.get("WANDB_MODE") == "disabled":
         wandb.watch(model, log_freq=10)
@@ -77,7 +77,7 @@ def main():
 
     train_dataset_splits, val_dataset_splits, task_output_space = data_split(dataset=train_dataset,
                                                                              return_classes=args.class_cond,
-                                                                             return_task_as_class=args.use_task_index,
+                                                                             return_task_as_class=args.use_task_index and args.class_cond,
                                                                              dataset_name=args.dataset.lower(),
                                                                              num_batches=args.num_tasks,
                                                                              num_classes=n_classes,
@@ -85,13 +85,19 @@ def main():
                                                                              limit_data=args.limit_data,
                                                                              dirichlet_split_alpha=args.dirichlet,
                                                                              reverse=args.reverse,
-                                                                             limit_classes=args.limit_classes)
+                                                                             limit_classes=args.limit_classes,
+                                                                             val_size=0 if args.validate_on_train else 0.3)
 
     if not args.skip_validation:
         val_loaders = []
         for task_id in range(args.num_tasks):
-            val_data = val_dataset_splits[task_id]
-            val_loader = data.DataLoader(dataset=val_data, batch_size=args.batch_size, shuffle=False)
+            if not args.validate_on_train:
+                val_data = val_dataset_splits[task_id]
+            else:
+                val_data = train_dataset_splits[task_id]
+            val_loader = data.DataLoader(dataset=val_data,
+                                         batch_size=args.microbatch if args.microbatch > 0 else args.batch_size,
+                                         shuffle=args.schedule_sampler == "only_dae", drop_last=True)
             val_loaders.append(val_loader)
 
         stats_file_name = f"seed_{args.seed}_tasks_{args.num_tasks}_random_{args.random_split}_dirichlet_{args.dirichlet}_limit_{args.limit_data}"
@@ -186,11 +192,29 @@ def main():
             validator=validator,
             validation_interval=args.validation_interval
         )
-        train_loop.run_loop()
+        if args.load_model_path is None:
+            train_loop.run_loop()
+        else:
+            if args.model_name == "UNetModel":
+                model.load_state_dict(
+                    dist_util.load_state_dict(args.load_model_path + ".pt", map_location="cpu")
+                )
+            else:
+                model.unet_1.load_state_dict(
+                    dist_util.load_state_dict(args.load_model_path + "_part_1.pt", map_location="cpu")
+                )
+                model.unet_2.load_state_dict(
+                    dist_util.load_state_dict(args.load_model_path + "_part_2.pt", map_location="cpu")
+                )
+            model.to(dist_util.dev())
+        if args.schedule_sampler == "only_dae":
+            train_loop.plot_dae_only(task_id, step=0)
+        else:
+            train_loop.plot(task_id, step=0)
         fid_table[task_id] = OrderedDict()
         precision_table[task_id] = OrderedDict()
         recall_table[task_id] = OrderedDict()
-        if args.skip_validation:
+        if args.skip_validation or (args.schedule_sampler == "only_dae"):
             for j in range(task_id + 1):
                 fid_table[j][task_id] = -1
                 precision_table[j][task_id] = -1
@@ -228,8 +252,6 @@ def create_argparser():
         microbatch=-1,  # -1 disables microbatches
         ema_rate="0.9999",  # comma-separated list of EMA values
         log_interval=50,
-        snr_log_interval=100,
-        num_points_plot=2,
         skip_save=False,
         save_interval=5000,
         plot_interval=1000,
@@ -250,12 +272,15 @@ def create_argparser():
         skip_validation=False,
         n_examples_validation=5000,
         validation_interval=25000,
+        validate_on_train=True,
         use_gpu_for_validation=True,
         n_generated_examples_per_task=1000,
         first_task_num_steps=5000,
         skip_gradient_thr=-1,
         generate_previous_examples_at_start_of_new_task=False,
-        generate_previous_samples_continuously=True
+        generate_previous_samples_continuously=True,
+        load_model_path=None,
+        load_pretrained_for_dae=False
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

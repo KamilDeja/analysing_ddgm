@@ -1,14 +1,24 @@
 import torch as th
 import torch.nn as nn
 
-
+from guided_diffusion.dae_architectures.edsr import EDSR
 from guided_diffusion.unet import UNetModel
 
 
-# class Autoencoder(nn.Module):
+class EDSR_defaults:
+    def __init__(self,
+                 in_channels,
+                 model_channels,
+                 num_res_blocks, ):
+        self.n_resblocks = num_res_blocks
+        self.n_feats = model_channels
+        self.scale = [1]
+        self.rgb_range = 1
+        self.n_colors = in_channels
+        self.res_scale = 3
 
 
-class TwoPartsModelDAE(nn.Module):
+class TwoPartsUNetModelDAE(nn.Module):
     """
     The full UNet model with attention and timestep embedding.
 
@@ -60,13 +70,15 @@ class TwoPartsModelDAE(nn.Module):
             use_scale_shift_norm=False,
             resblock_updown=False,
             use_new_attention_order=False,
-            model_switching_timestep=None
+            model_switching_timestep=None,
+            dae_only=False
     ):
         super().__init__()
 
         if num_heads_upsample == -1:
             num_heads_upsample = num_heads
 
+        self.constant_sigma = 1e-5
         self.image_size = image_size
         self.in_channels = in_channels
         self.model_channels = model_channels
@@ -83,27 +95,13 @@ class TwoPartsModelDAE(nn.Module):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
 
-        self.switching_point = 1 # model_switching_timestep
+        self.switching_point = 1  # model_switching_timestep
 
-        self.unet_1 = UNetModel(image_size,
-                                in_channels,
-                                model_channels,
-                                out_channels,
-                                num_res_blocks,
-                                attention_resolutions,
-                                dropout,
-                                channel_mult,
-                                conv_resample,
-                                dims,
-                                num_classes=None,
-                                use_checkpoint=use_checkpoint,
-                                use_fp16=use_fp16,
-                                num_heads=num_heads,
-                                num_head_channels=num_head_channels,
-                                num_heads_upsample=num_heads_upsample,
-                                use_scale_shift_norm=use_scale_shift_norm,
-                                resblock_updown=resblock_updown,
-                                use_new_attention_order=use_new_attention_order)
+        args = EDSR_defaults(in_channels,
+                             model_channels,
+                             num_res_blocks, )
+
+        self.dae = EDSR(args)
 
         self.unet_2 = UNetModel(image_size,
                                 in_channels,
@@ -125,7 +123,7 @@ class TwoPartsModelDAE(nn.Module):
                                 resblock_updown,
                                 use_new_attention_order)
 
-    def forward(self, x, timesteps, y=None):
+    def forward(self, x, timesteps, y=None, return_res_out = False):
         """
         Apply the model to an input batch.
 
@@ -134,13 +132,17 @@ class TwoPartsModelDAE(nn.Module):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        timesteps_unet_1 = timesteps ==0 #< self.switching_point
+        timesteps_unet_1 = timesteps == 0  # < self.switching_point
         timesteps_unet_2 = ~timesteps_unet_1
-        out = th.zeros(x.shape[0],x.shape[1]*2,x.shape[2],x.shape[3],device=x.device)
-        if timesteps_unet_1.sum()>0:
-            x_1 = self.unet_1(x[timesteps_unet_1], timesteps[timesteps_unet_1])
-            out[timesteps_unet_1] = x_1
-        if timesteps_unet_2.sum()>0:
+        out = th.zeros(x.shape[0], x.shape[1] * 2, x.shape[2], x.shape[3], device=x.device)
+        if timesteps_unet_1.sum() > 0:
+            x_1, res_out = self.dae(x[timesteps_unet_1])  # , timesteps[timesteps_unet_1])
+            # x_1[:, 1] = th.zeros_like(x_1[:, 1]) + self.constant_sigma
+            out[timesteps_unet_1] = th.cat([x_1, th.zeros_like(x_1) + self.constant_sigma], 1)
+        if timesteps_unet_2.sum() > 0:
             x_2 = self.unet_2(x[timesteps_unet_2], timesteps[timesteps_unet_2], y[timesteps_unet_2])
             out[timesteps_unet_2] = x_2
-        return out
+        if return_res_out:
+            return out, res_out
+        else:
+            return out

@@ -276,7 +276,11 @@ class GaussianDiffusion:
 
         B, C = x.shape[:2]
         assert t.shape == (B,)
-        model_output = model(x, self._scale_timesteps(t), **model_kwargs)
+        if model_kwargs.get("return_res_out",False):
+            model_output, res_out = model(x, self._scale_timesteps(t), **model_kwargs)
+        else:
+            model_output = model(x, self._scale_timesteps(t), **model_kwargs)
+            res_out = None
 
         if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
             assert model_output.shape == (B, C * 2, *x.shape[2:])
@@ -342,6 +346,7 @@ class GaussianDiffusion:
             "variance": model_variance,
             "log_variance": model_log_variance,
             "pred_xstart": pred_xstart,
+            "res_out": res_out
         }
 
     def _predict_xstart_from_eps(self, x_t, t, eps):
@@ -726,7 +731,7 @@ class GaussianDiffusion:
                 img = out["sample"]
 
     def _vb_terms_bpd(
-            self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None
+            self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None, res_model_loss=False
     ):
         """
         Get a term for the variational lower-bound.
@@ -741,6 +746,8 @@ class GaussianDiffusion:
         true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(
             x_start=x_start, x_t=x_t, t=t
         )
+        if res_model_loss:
+            model_kwargs["return_res_out"] = True
         out = self.p_mean_variance(
             model, x_t, t, clip_denoised=clip_denoised, model_kwargs=model_kwargs
         )
@@ -752,6 +759,12 @@ class GaussianDiffusion:
             # out["log_variance"] = th.zeros_like(out["log_variance"]) + self.constant_sigma * 2
             decoder_mse = (out["mean"] - x_start) ** 2
             decoder_loss_0 = mean_flat(decoder_mse)
+            if res_model_loss:
+                res_mse = 0
+                for batch in out["res_out"]:
+                    res_mse += (batch - x_start) ** 2
+                res_mse = mean_flat(res_mse)
+                decoder_loss_0+=res_mse
         else:
             decoder_nll = -discretized_gaussian_log_likelihood(
                 x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
@@ -870,14 +883,15 @@ class GaussianDiffusion:
         terms = {}
 
         if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
-            terms["loss"] = self._vb_terms_bpd(
+            vb_out = self._vb_terms_bpd(
                 model=model,
                 x_start=x_start,
                 x_t=x_t,
                 t=t,
                 clip_denoised=False,
                 model_kwargs=model_kwargs,
-            )["output"]
+            )
+            terms["loss"] = vb_out["output"]
             if self.loss_type == LossType.RESCALED_KL:
                 if self.dae_model:
                     terms["loss"] *= (self.num_timesteps - 1)

@@ -10,7 +10,9 @@ from .wrapper import Subclass, AppendName, Permutation
 def data_split(dataset, dataset_name, return_classes=False, return_task_as_class=False, num_batches=5, num_classes=10,
                random_split=False,
                limit_data=None, dirichlet_split_alpha=None, dirichlet_equal_split=True, reverse=False,
-               limit_classes=-1):
+               limit_classes=-1, val_size = 0.3):
+    if limit_data is not None:
+        limit_data = float(limit_data)
     if limit_classes > 0:
         num_classes = limit_classes
     if dataset_name.lower() == "celeba":
@@ -61,7 +63,7 @@ def data_split(dataset, dataset_name, return_classes=False, return_task_as_class
             }
     elif num_batches == 1:
         batch_split = {
-            0: range(10)
+            0: range(num_classes)
         }
     else:
         if dataset_name in ["omniglot", "doublemnist", "flowers"]:
@@ -136,7 +138,6 @@ def data_split(dataset, dataset_name, return_classes=False, return_task_as_class
     val_dataset_splits = {}
     task_output_space = {}
 
-    val_size = 0.3
     random_samples = torch.rand(len(dataset))
     train_set_indices = torch.ones(len(dataset))
     train_set_indices[random_samples < val_size] = 0

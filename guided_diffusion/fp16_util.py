@@ -202,6 +202,7 @@ class MixedPrecisionTrainer:
         logger.logkv_mean("param_norm", param_norm)
 
         self.master_params[0].grad.mul_(1.0 / (2 ** self.lg_loss_scale))
+        # TODO: add skip gradients here
         if self.skip_gradient_thr == -1. or grad_norm < self.skip_gradient_thr:
             logger.logkv_mean("skip_update", 0)
             opt.step()
@@ -218,6 +219,7 @@ class MixedPrecisionTrainer:
         grad_norm, param_norm = self._compute_norms()
         logger.logkv_mean("grad_norm", grad_norm)
         logger.logkv_mean("param_norm", param_norm)
+        # TODO: add skip gradients here
         if self.skip_gradient_thr == -1. or grad_norm < self.skip_gradient_thr:
             logger.logkv_mean("skip_update", 0)
             opt.step()
@@ -240,6 +242,23 @@ class MixedPrecisionTrainer:
         return master_params_to_state_dict(
             self.model, self.param_groups_and_shapes, master_params, self.use_fp16
         )
+
+    def master_params_to_state_dict_DAE(self, master_params):
+        param_groups_and_shapes_1 = get_param_groups_and_shapes(
+                self.model.unet_1.named_parameters()
+            )
+        if self.model.unet_2 is not None:
+            param_groups_and_shapes_2 = get_param_groups_and_shapes(
+                    self.model.unet_2.named_parameters()
+                )
+            return master_params_to_state_dict(
+                self.model.unet_1, param_groups_and_shapes_1, list(self.model.unet_1.parameters()), self.use_fp16
+            ), master_params_to_state_dict(
+                self.model.unet_2, param_groups_and_shapes_2, list(self.model.unet_2.parameters()), self.use_fp16
+            )
+        return master_params_to_state_dict(
+            self.model.unet_1, param_groups_and_shapes_1, list(self.model.unet_1.parameters()), self.use_fp16
+        ), None
 
     def state_dict_to_master_params(self, state_dict):
         return state_dict_to_master_params(self.model, state_dict, self.use_fp16)

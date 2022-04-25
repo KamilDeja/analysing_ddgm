@@ -13,7 +13,7 @@ import torch.distributed as dist
 
 # Change this to reflect your cluster layout.
 # The GPU for a given rank is (rank % GPUS_PER_NODE).
-GPUS_PER_NODE = 2
+GPUS_PER_NODE = 4
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 SETUP_RETRY_COUNT = 3
 GPU_ID = ""
