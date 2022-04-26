@@ -432,13 +432,14 @@ class TrainLoop:
         kl_fl = []
         num_examples = 50
         for task in range(task_id+1):
-            id_curr = th.where(cond['y'] == task)[0][:num_examples]
-            x = batch[id_curr]
-            x = x.to(dist_util.dev())
-            num_examples = x.shape[0]
+            if self.class_cond:
+                id_curr = th.where(cond['y'] == task)[0][:num_examples]
+                batch = batch[id_curr]
+            batch = batch.to(dist_util.dev())
+            num_examples = batch.shape[0]
             task_tsr = th.tensor([task]*num_examples, device=dist_util.dev())
 
-            snr_fwd, snr_bwd, kl, x_q, x_p = self.get_snr_encode(x,
+            snr_fwd, snr_bwd, kl, x_q, x_p = self.get_snr_encode(batch,
                                                                  task_tsr,
                                                                  save_x=self.params.num_points_plot)
             x_p_q = th.cat([
@@ -553,9 +554,11 @@ class TrainLoop:
     def get_snr_encode(self, x, task_id, save_x):
         model = self.mp_trainer.model
         model.eval()
-        model_kwargs = {
-            "y": th.zeros(task_id.shape[0], device=dist_util.dev()) + task_id
-        }
+        model_kwargs = {}
+        if self.class_cond:
+            model_kwargs = {
+                "y": th.zeros(task_id.shape[0], device=dist_util.dev()) + task_id
+            }
         indices_fwd = list(range(self.diffusion.num_timesteps))  # [0, 1, ....T]
         shape = x.shape
         x_curr = x.clone()
