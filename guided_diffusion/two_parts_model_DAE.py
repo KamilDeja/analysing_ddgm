@@ -148,3 +148,19 @@ class TwoPartsUNetModelDAE(nn.Module):
                 x_2 = self.unet_2(x[timesteps_unet_2], timesteps[timesteps_unet_2])
             out[timesteps_unet_2] = x_2
         return out
+
+    def convert_to_fp16(self):
+        """
+        Convert the torso of the model to float16.
+        """
+        self.unet_1.convert_to_fp16()
+        if self.unet_2 is not None:
+            self.unet_2.convert_to_fp16()
+
+    def convert_to_fp32(self):
+        """
+        Convert the torso of the model to float32.
+        """
+        self.unet_1.convert_to_fp32()
+        if self.unet_2 is not None:
+            self.unet_2.convert_to_fp32()

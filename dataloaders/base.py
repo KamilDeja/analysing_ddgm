@@ -397,7 +397,7 @@ def LSUN(dataroot, skip_normalization=False, train_aug=False):
 
     return train_dataset, train_dataset, resolution, 3
 
-def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 64):
+def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 256):
     dataset_dir = dataroot + "ImageNet/train"
     all_files = _list_image_files_recursively(dataset_dir)
     train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))

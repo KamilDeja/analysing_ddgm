@@ -10,7 +10,11 @@ import math
 
 import numpy as np
 import torch as th
-from guided_diffusion import dist_util
+import os
+if os.uname().nodename == "titan4":
+    from guided_diffusion import dist_util_titan as dist_util
+else:
+    from guided_diffusion import dist_util
 
 from .nn import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
