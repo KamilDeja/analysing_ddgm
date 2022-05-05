@@ -72,6 +72,7 @@ class HumanOutputFormat(KVWriter, SeqWriter):
                 % (key, " " * (keywidth - len(key)), val, " " * (valwidth - len(val)))
             )
         lines.append(dashes)
+        lines.append(f'time: {datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f")}')
         self.file.write("\n".join(lines) + "\n")
 
         # Flush the output to the file

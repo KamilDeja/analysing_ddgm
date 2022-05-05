@@ -16,7 +16,11 @@ import numpy.matlib
 from matplotlib.colors import LogNorm
 import matplotlib as mpl
 
-from . import dist_util, logger
+from . import logger
+if os.uname().nodename == "titan4":
+    from guided_diffusion import dist_util_titan as dist_util
+else:
+    from guided_diffusion import dist_util
 from .fp16_util import MixedPrecisionTrainer
 from .nn import update_ema
 from .resample import LossAwareSampler, UniformSampler, TaskAwareSampler
@@ -133,7 +137,7 @@ class TrainLoop:
 
         if th.cuda.is_available():
             self.use_ddp = True
-            find_unused_params = not isinstance(self.model, UNetModel)
+            find_unused_params = (not isinstance(self.model, UNetModel)) and (not isinstance(self.schedule_sampler, DAEOnlySampler))
             self.ddp_model = DDP(
                 self.model,
                 device_ids=[dist_util.dev()],
@@ -215,7 +219,8 @@ class TrainLoop:
             batch, cond = next(self.data)
             self.run_step(batch, cond)
             if self.step % self.log_interval == 0:
-                wandb.log(logger.getkvs(), step=self.step)
+                if logger.get_rank_without_mpi_import() == 0:
+                    wandb.log(logger.getkvs(), step=self.step)
                 logger.dumpkvs()
             if (not self.skip_save) & (self.step % self.save_interval == 0) & (self.step != 0):
                 self.save(self.task_id)
@@ -235,16 +240,18 @@ class TrainLoop:
                     if self.diffusion.dae_model:
                         dae_result = self.validate_dae()
                         logger.log(f"DAE test MAE: {dae_result:.3}")
-                        wandb.log({"dae_test_MAE": dae_result})
+                        if logger.get_rank_without_mpi_import() == 0:
+                            wandb.log({"dae_test_MAE": dae_result})
                     if not isinstance(self.schedule_sampler, DAEOnlySampler):
                         fid_result, precision, recall = self.validator.calculate_results(train_loop=self,
                                                                                          task_id=self.task_id,
                                                                                          dataset=self.params.dataset,
                                                                                          n_generated_examples=self.params.n_examples_validation,
                                                                                          batch_size=self.params.microbatch if self.params.microbatch > 0 else self.params.batch_size)
-                        wandb.log({"fid": fid_result})
-                        wandb.log({"precision": precision})
-                        wandb.log({"recall": recall})
+                        if logger.get_rank_without_mpi_import() == 0:
+                            wandb.log({"fid": fid_result})
+                            wandb.log({"precision": precision})
+                            wandb.log({"recall": recall})
                         logger.log(f"FID: {fid_result}, Prec: {precision}, Rec: {recall}")
 
             self.step += 1
@@ -423,7 +430,8 @@ class TrainLoop:
             os.makedirs(os.path.join(logger.get_dir(), f"samples/"))
         out_plot = os.path.join(logger.get_dir(), f"samples/task_{task_id:02d}_step_{step:06d}")
         plt.savefig(out_plot)
-        wandb.log(logs, step=step)
+        if logger.get_rank_without_mpi_import() == 0:
+            wandb.log(logs, step=step)
 
     def snr_plots(self, batch, cond, task_id, step):
         logs = {}
@@ -469,7 +477,8 @@ class TrainLoop:
             axes[task].set_title(f'KL (task {task})')
             axes[task].grid(True)
         logs["plot/kl"] = wandb.Image(fig)
-        wandb.log(logs, step=step)
+        if logger.get_rank_without_mpi_import() == 0:
+            wandb.log(logs, step=step)
 
     @th.no_grad()
     def draw_final_snr_plot(self, step, task_id):
@@ -517,7 +526,8 @@ class TrainLoop:
         cbar = plt.colorbar(sm, ticks=np.linspace(0, len(av_snrs)-1, len(av_snrs)))
         cbar.ax.set_yticklabels(save_steps)
         logs["plot/final_snr_log"] = wandb.Image(fig)
-        wandb.log(logs, step=step)
+        if logger.get_rank_without_mpi_import() == 0:
+            wandb.log(logs, step=step)
 
     @th.no_grad()
     def draw_snr_plot(self, snr_bwd_fl, snr_fwd_fl, log_scale=True):
@@ -616,7 +626,8 @@ class TrainLoop:
         to_plot = th.cat([batch[:num_exammples], x_t[:num_exammples],img[:num_exammples]])
         samples_grid = make_grid(to_plot.detach().cpu(), num_exammples, normalize=True).permute(1, 2, 0)
         sample_wandb = wandb.Image(samples_grid.permute(2, 0, 1), caption=f"sample_task_{task_id}")
-        wandb.log({"sampled_images": sample_wandb})
+        if logger.get_rank_without_mpi_import() == 0:
+            wandb.log({"sampled_images": sample_wandb})
 
         plt.imshow(samples_grid)
         plt.axis('off')

@@ -10,7 +10,13 @@ import numpy as np
 import torch as th
 import torch.distributed as dist
 
-from guided_diffusion import dist_util, logger
+from guided_diffusion import logger
+
+if os.uname().nodename == "titan4":
+    from guided_diffusion import dist_util_titan as dist_util
+else:
+    from guided_diffusion import dist_util
+
 from guided_diffusion.script_util import (
     # NUM_CLASSES,
     model_and_diffusion_defaults,
@@ -39,6 +45,13 @@ def main():
     if args.model_name == "UNetModel":
         model.load_state_dict(
             dist_util.load_state_dict(args.model_path, map_location="cpu")
+        )
+    elif args.model_name == "TwoPartsUNetModel":
+        model.unet_1.load_state_dict(
+            dist_util.load_state_dict(args.dae_path , map_location="cpu")
+        )
+        model.unet_2.load_state_dict(
+            dist_util.load_state_dict(args.model_path , map_location="cpu")
         )
     else:
         model.unet_1.load_state_dict(
@@ -87,19 +100,19 @@ def main():
             all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
         logger.log(f"created {len(all_images) * args.batch_size} samples")
 
-    arr = np.concatenate(all_images, axis=0)
-    arr = arr[: args.num_samples]
-    if args.class_cond:
-        label_arr = np.concatenate(all_labels, axis=0)
-        label_arr = label_arr[: args.num_samples]
-    if dist.get_rank() == 0:
-        shape_str = "x".join([str(x) for x in arr.shape])
-        out_path = os.path.join(logger.get_dir(), f"samples_{args.model_path.split('/')[-1][:-3]}.npz")
-        logger.log(f"saving to {out_path}")
+        arr = np.concatenate(all_images, axis=0)
+        arr = arr[: args.num_samples]
         if args.class_cond:
-            np.savez(out_path, arr, label_arr)
-        else:
-            np.savez(out_path, arr)
+            label_arr = np.concatenate(all_labels, axis=0)
+            label_arr = label_arr[: args.num_samples]
+        if dist.get_rank() == 0:
+            shape_str = "x".join([str(x) for x in arr.shape])
+            out_path = os.path.join(logger.get_dir(), f"samples_{args.model_path.split('/')[-1][:-3]}.npz")
+            logger.log(f"saving to {out_path}")
+            if args.class_cond:
+                np.savez(out_path, arr, label_arr)
+            else:
+                np.savez(out_path, arr)
 
     dist.barrier()
     plt.figure()
@@ -121,6 +134,7 @@ def create_argparser():
         model_path="",
         gpu_id=-1,
         num_tasks=1,
+        dae_path="",
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

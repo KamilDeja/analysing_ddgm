@@ -10,8 +10,6 @@ from dataloaders import base
 from dataloaders.datasetGen import *
 from evaluations.validation import Validator, CERN_Validator
 
-from guided_diffusion import dist_util, logger
-from guided_diffusion.image_datasets import load_data
 from guided_diffusion.resample import create_named_schedule_sampler
 from guided_diffusion.script_util import (
     model_and_diffusion_defaults,
@@ -20,9 +18,15 @@ from guided_diffusion.script_util import (
     add_dict_to_argparser, results_to_log,
 )
 from torch.utils import data
+import torch.distributed as dist
 from guided_diffusion.train_util import TrainLoop
+from guided_diffusion import logger
 import os
-import wandb
+
+if os.uname().nodename == "titan4":
+    from guided_diffusion import dist_util_titan as dist_util
+else:
+    from guided_diffusion import dist_util
 
 import torch
 
@@ -38,7 +42,7 @@ def main():
     args = create_argparser().parse_args()
     dist_util.setup_dist(args)
 
-    if args.seed:
+    if args.seed is not None:
         print("Using manual seed = {}".format(args.seed))
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
@@ -47,11 +51,14 @@ def main():
     else:
         print("WARNING: Not using manual seed - your experiments will not be reproducible")
 
-    os.environ["WANDB_API_KEY"] = args.wandb_api_key
-    wandb.init(project="continual_diffusion", name=args.experiment_name, config=args, entity="generative_cl")
     os.environ["OPENAI_LOGDIR"] = f"results/{args.experiment_name}"
-
     logger.configure()
+
+    if logger.get_rank_without_mpi_import() == 0:
+        import wandb
+        # print("Init wandb")
+        os.environ["WANDB_API_KEY"] = args.wandb_api_key
+        wandb.init(project="continual_diffusion", name=args.experiment_name, config=args, entity="generative_cl")
 
     train_dataset, val_dataset, image_size, image_channels = base.__dict__[args.dataset](args.dataroot,
                                                                                          train_aug=args.train_aug)
@@ -68,8 +75,8 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys()), dae_only=args.schedule_sampler == "only_dae"
     )
-    if not os.environ.get("WANDB_MODE") == "disabled":
-        wandb.watch(model, log_freq=10)
+    # if not os.environ.get("WANDB_MODE") == "disabled":
+    #     wandb.watch(model, log_freq=10)
     model.to(dist_util.dev())
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion, args)
 
@@ -237,7 +244,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        seed=13,
+        seed=None,
         wandb_api_key="",
         experiment_name="test",
         dataroot="data/",
