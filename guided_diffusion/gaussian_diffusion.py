@@ -190,6 +190,7 @@ class GaussianDiffusion:
                 / (1.0 - self.alphas_cumprod)
         )
         self.dae_model = dae_model
+        self.calculate_nll = False
 
     def q_mean_variance(self, x_start, t):
         """
@@ -759,23 +760,28 @@ class GaussianDiffusion:
             true_mean, true_log_variance_clipped, out["mean"], out["log_variance"]
         )  # Calculate kl for all examples even with timestep=0 It will be overwritten later on
         kl = mean_flat(kl) / np.log(2.0)
-        if self.dae_model:
+        if self.dae_model and (not self.calculate_nll):
             # out["log_variance"] = th.zeros_like(out["log_variance"]) + self.constant_sigma * 2
-            decoder_mse = (out["mean"] - x_start) ** 2
-            decoder_loss_0 = mean_flat(decoder_mse)
-            if res_model_loss:
-                res_mse = 0
-                for batch in out["res_out"]:
-                    res_mse += (batch - x_start) ** 2
-                res_mse = mean_flat(res_mse)
-                decoder_loss_0+=res_mse
+            if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
+                decoder_mse = (out["mean"] - x_start) ** 2
+                decoder_loss_0 = mean_flat(decoder_mse)
+                if res_model_loss:
+                    res_mse = 0
+                    for batch in out["res_out"]:
+                        res_mse += (batch - x_start) ** 2
+                    res_mse = mean_flat(res_mse)
+                    decoder_loss_0+=res_mse
+            else:
+                decoder_loss_0 = th.Tensor([0.0]).to(dist_util.dev())
         else:
+            if self.dae_model and self.calculate_nll:
+                out["log_variance"] = th.zeros_like(out["log_variance"]) + np.log(self.betas[0]) # 1e-1 #self.constant_sigma
             decoder_nll = -discretized_gaussian_log_likelihood(
                 x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
             )
             # print(th.exp(-0.5 * out["log_variance"][t==0]).mean().item())
             assert decoder_nll.shape == x_start.shape
-            decoder_loss_0 = mean_flat(decoder_nll) / np.log(2.0)
+            decoder_loss_0 =  mean_flat(decoder_nll) / np.log(2.0)
 
         # At the first timestep return the decoder NLL or MSE,
         # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
@@ -921,10 +927,16 @@ class GaussianDiffusion:
                     t=t,
                     clip_denoised=False,
                 )["output"]
+                if self.dae_model:
+                    terms["vb"][t == 0] = th.Tensor([0.0]).to(dist_util.dev())
                 if self.loss_type == LossType.RESCALED_MSE:
                     # Divide by 1000 for equivalence with initial implementation.
                     # Without a factor of 1/1000, the VB term hurts the MSE term.
-                    terms["vb"] *= self.num_timesteps / 1000.0
+                    # terms["vb"] *= self.num_timesteps / 1000.0
+                    if self.dae_model:
+                        terms["vb"] *= (self.num_timesteps - 1)/1000
+                    else:
+                        terms["vb"] *= self.num_timesteps/1000
 
             target = {
                 ModelMeanType.PREVIOUS_X: self.q_posterior_mean_variance(
@@ -935,6 +947,9 @@ class GaussianDiffusion:
             }[self.model_mean_type]
             assert model_output.shape == target.shape == x_start.shape
             terms["mse"] = mean_flat((target - model_output) ** 2)
+            # if self.dae_model:
+            #     mse_0_step = mean_flat((x_start - model_output) ** 2)
+            #     terms["mse"][t==0] = mse_0_step[t==0]
             if "vb" in terms:
                 terms["loss"] = terms["mse"] + terms["vb"]
             else:

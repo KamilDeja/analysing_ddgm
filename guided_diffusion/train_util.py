@@ -137,7 +137,7 @@ class TrainLoop:
 
         if th.cuda.is_available():
             self.use_ddp = True
-            find_unused_params = not isinstance(self.model, UNetModel)
+            find_unused_params = (not isinstance(self.model, UNetModel)) and (not isinstance(self.schedule_sampler, DAEOnlySampler))
             self.ddp_model = DDP(
                 self.model,
                 device_ids=[dist_util.dev()],

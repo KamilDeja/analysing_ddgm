@@ -397,12 +397,21 @@ def LSUN(dataroot, skip_normalization=False, train_aug=False):
 
     return train_dataset, train_dataset, resolution, 3
 
-def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 256):
+def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 64):
     dataset_dir = dataroot + "ImageNet/train"
     all_files = _list_image_files_recursively(dataset_dir)
     train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
     # dataset_dir = dataroot + "ImageNet/test"
     # all_files = _list_image_files_recursively(dataset_dir)
     # test_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
+
+    return train_dataset, train_dataset, resolution, 3
+
+
+def CIFAR10AUG(dataroot, skip_normalization=False, train_aug=False):
+    dataset_dir = dataroot + "cifar_train/"
+    all_files = _list_image_files_recursively(dataset_dir)
+    resolution = 32
+    train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
 
     return train_dataset, train_dataset, resolution, 3

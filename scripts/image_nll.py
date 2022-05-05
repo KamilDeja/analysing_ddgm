@@ -9,9 +9,13 @@ import numpy as np
 import torch.distributed as dist
 from dataloaders import base
 
+if os.uname().nodename == "titan4":
+    from guided_diffusion import dist_util_titan as dist_util
+else:
+    from guided_diffusion import dist_util
+
 from dataloaders.datasetGen import data_split
-from guided_diffusion import dist_util, logger
-from guided_diffusion.image_datasets import load_data
+from guided_diffusion import logger
 from guided_diffusion.script_util import (
     model_and_diffusion_defaults,
     create_model_and_diffusion,
@@ -61,10 +65,19 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
+    diffusion.calculate_nll = True
     model_path = f"results/{args.experiment_name}/{args.model_path}"
-    model.load_state_dict(
-        dist_util.load_state_dict(model_path, map_location="cpu")
-    )
+    if args.model_name == "UNetModel":
+        model.load_state_dict(
+            dist_util.load_state_dict(model_path, map_location="cpu")
+        )
+    else:
+        model.unet_1.load_state_dict(
+            dist_util.load_state_dict(model_path + "_part_1.pt", map_location="cpu")
+        )
+        model.unet_2.load_state_dict(
+            dist_util.load_state_dict(model_path + "_part_2.pt", map_location="cpu")
+        )
     # if not os.environ.get("WANDB_MODE") == "disabled":
     #     wandb.watch(model, log_freq=10)
     model.to(dist_util.dev())
@@ -91,20 +104,23 @@ def main():
 
 
     logger.log("evaluating...")
-    diffusion.dae_model = False
+    # diffusion.dae_model = False
     for task_id in range(args.num_tasks):
         data = yielder(val_loaders[task_id])
-        run_bpd_evaluation(model, diffusion, data, args.num_samples, args.clip_denoised)
+        run_bpd_evaluation(model, diffusion, data, args.num_samples, args.clip_denoised, args.class_cond)
 
 
-def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
+def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised, class_cond):
     all_bpd = []
     all_metrics = {"vb": [], "mse": [], "xstart_mse": []}
     num_complete = 0
     while num_complete < num_samples:
         batch, model_kwargs = next(data)
         batch = batch.to(dist_util.dev())
-        model_kwargs = {k: v.to(dist_util.dev()) for k, v in model_kwargs.items()}
+        if class_cond:
+            model_kwargs = {k: v.to(dist_util.dev()) for k, v in model_kwargs.items()}
+        else:
+            model_kwargs = {}
         minibatch_metrics = diffusion.calc_bpd_loop(
             model, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
         )
