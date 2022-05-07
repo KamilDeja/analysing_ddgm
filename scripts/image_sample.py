@@ -32,7 +32,6 @@ def main():
     args = create_argparser().parse_args()
     args.num_classes = args.num_tasks
     os.environ["OPENAI_LOGDIR"] = f"results/{args.experiment_name}"
-    args.model_path = f"results/{args.experiment_name}/" + args.model_path
 
 
     dist_util.setup_dist(args)
@@ -42,17 +41,24 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
+    if args.model_name != "TwoPartsUNetModel":
+        args.model_path = f"results/{args.experiment_name}/" + args.model_path
+
     if args.model_name == "UNetModel":
         model.load_state_dict(
             dist_util.load_state_dict(args.model_path, map_location="cpu")
         )
     elif args.model_name == "TwoPartsUNetModel":
+        switching_point = np.argmin(np.abs(diffusion.alphas_cumprod - (1 - float(args.first_step_beta))))
+        model.switching_point = 63#switching_point
         model.unet_1.load_state_dict(
             dist_util.load_state_dict(args.dae_path , map_location="cpu")
         )
+        model.unet_1.eval()
         model.unet_2.load_state_dict(
             dist_util.load_state_dict(args.model_path , map_location="cpu")
         )
+        model.unet_2.eval()
     else:
         model.unet_1.load_state_dict(
             dist_util.load_state_dict(args.model_path + "_part_1.pt", map_location="cpu")
