@@ -792,8 +792,7 @@ class GaussianDiffusion:
                 decoder_loss_0 = th.Tensor([0.0]).to(dist_util.dev())
         else:
             if self.dae_model and self.calculate_nll:
-                out["log_variance"] = th.zeros_like(out["log_variance"]) -5 #+ np.log(
-                    # self.betas[0])  # 1e-1 #self.constant_sigma
+                out["log_variance"] = th.zeros_like(out["log_variance"]) + np.log(self.betas[0])  # 1e-1 #self.constant_sigma
             decoder_nll = -discretized_gaussian_log_likelihood(
                 x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
             )
