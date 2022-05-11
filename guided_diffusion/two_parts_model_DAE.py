@@ -136,7 +136,7 @@ class TwoPartsUNetModelDAE(nn.Module):
         """
         timesteps_unet_1 = timesteps == 0  # < self.switching_point
         timesteps_unet_2 = ~timesteps_unet_1
-        out = th.zeros(x.shape[0], x.shape[1] * 2, x.shape[2], x.shape[3], device=x.device)
+        out = th.zeros(x.shape[0], self.out_channels, x.shape[2], x.shape[3], device=x.device)
         if timesteps_unet_1.sum() > 0:
             x_1 = self.unet_1(x[timesteps_unet_1], timesteps[timesteps_unet_1])
             # x_1[:,1] = th.zeros_like(x_1[:,1]) + self.constant_sigma

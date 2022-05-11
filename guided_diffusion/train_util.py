@@ -17,8 +17,11 @@ from matplotlib.colors import LogNorm
 import matplotlib as mpl
 
 from . import logger
+
 if os.uname().nodename == "titan4":
     from guided_diffusion import dist_util_titan as dist_util
+elif os.uname().nodename == "node7001.grid4cern.if.pw.edu.pl":
+    from guided_diffusion import dist_util_dwarf as dist_util
 else:
     from guided_diffusion import dist_util
 from .fp16_util import MixedPrecisionTrainer
@@ -106,7 +109,8 @@ class TrainLoop:
 
         self.step = 0
         self.resume_step = 0
-        self.global_batch = self.batch_size * dist.get_world_size()
+        self.world_size = dist.get_world_size()
+        self.global_batch = self.batch_size * self.world_size
 
         self.sync_cuda = th.cuda.is_available()
 
@@ -137,7 +141,8 @@ class TrainLoop:
 
         if th.cuda.is_available():
             self.use_ddp = True
-            find_unused_params = (not isinstance(self.model, UNetModel)) and (not isinstance(self.schedule_sampler, DAEOnlySampler))
+            find_unused_params = (not isinstance(self.model, UNetModel)) and (
+                not isinstance(self.schedule_sampler, DAEOnlySampler))
             self.ddp_model = DDP(
                 self.model,
                 device_ids=[dist_util.dev()],
@@ -147,7 +152,7 @@ class TrainLoop:
                 find_unused_parameters=find_unused_params,
             )
         else:
-            if dist.get_world_size() > 1:
+            if self.world_size > 1:
                 logger.warn(
                     "Distributed training requires CUDA. "
                     "Gradients will not be synchronized properly!"
@@ -167,6 +172,7 @@ class TrainLoop:
 
         if resume_checkpoint:
             self.resume_step = parse_resume_step_from_filename(resume_checkpoint)
+
             if dist.get_rank() == 0:
                 logger.log(f"loading model from checkpoint: {resume_checkpoint}...")
                 self.model.load_state_dict(
@@ -231,7 +237,7 @@ class TrainLoop:
             if self.params.snr_log_interval > 0 and self.step % self.params.snr_log_interval == 0:
                 self.snr_plots(batch, cond, self.task_id, self.step)
             if self.step > 0:
-                if self.step % self.plot_interval == 0:
+                if (self.step == 1000) or (self.step % self.plot_interval == 0):
                     plot(self.task_id, self.step)
                 if self.step % self.scheduler_step == 0:
                     self.scheduler.step()
@@ -264,7 +270,6 @@ class TrainLoop:
         if self.params.snr_log_interval > 0:
             self.snr_plots(batch, cond, self.task_id, self.step)
             self.draw_final_snr_plot(self.step, self.task_id)
-
 
     def run_step(self, batch, cond):
         self.forward_backward(batch, cond)
@@ -439,13 +444,13 @@ class TrainLoop:
         snr_bwd_fl = []
         kl_fl = []
         num_examples = 50
-        for task in range(task_id+1):
+        for task in range(task_id + 1):
             if self.class_cond:
                 id_curr = th.where(cond['y'] == task)[0][:num_examples]
                 batch = batch[id_curr]
             batch = batch.to(dist_util.dev())
             num_examples = batch.shape[0]
-            task_tsr = th.tensor([task]*num_examples, device=dist_util.dev())
+            task_tsr = th.tensor([task] * num_examples, device=dist_util.dev())
 
             snr_fwd, snr_bwd, kl, x_q, x_p = self.get_snr_encode(batch,
                                                                  task_tsr,
@@ -455,7 +460,7 @@ class TrainLoop:
                         x_p[j::self.params.num_points_plot]
                         ]) for j in range(self.params.num_points_plot)])
             x_p_q_vis = make_grid(x_p_q.detach().cpu(),
-                                  x_q.shape[0]//self.params.num_points_plot,
+                                  x_q.shape[0] // self.params.num_points_plot,
                                   normalize=True, scale_each=True)
             logs[f"plot/x_{task}"] = wandb.Image(x_p_q_vis)
             kl_fl.append(kl.cpu())
@@ -467,11 +472,11 @@ class TrainLoop:
         th.save(th.stack([s.mean(1) for s in snr_bwd_fl], 0),
                 os.path.join(wandb.run.dir, f'bwd_snr_step_{step}.npy'))
 
-        fig, axes = plt.subplots(ncols=task_id+1, nrows=1, figsize=(5*(task_id+1), 4),
+        fig, axes = plt.subplots(ncols=task_id + 1, nrows=1, figsize=(5 * (task_id + 1), 4),
                                  sharey=True, constrained_layout=True)
         if task_id == 0:
             axes = np.expand_dims(axes, 0)
-        for task in range(task_id+1):
+        for task in range(task_id + 1):
             time_hist(axes[task], kl_fl[task])
             axes[task].set_xlabel('T')
             axes[task].set_title(f'KL (task {task})')
@@ -483,7 +488,7 @@ class TrainLoop:
     @th.no_grad()
     def draw_final_snr_plot(self, step, task_id):
         av_snrs = []
-        save_steps = list(range(0, step+1, self.params.snr_log_interval))
+        save_steps = list(range(0, step + 1, self.params.snr_log_interval))
         if save_steps[-1] < step:
             save_steps.append(step)
         for s in save_steps:
@@ -492,30 +497,30 @@ class TrainLoop:
 
         # linear
         cmap = plt.get_cmap('RdYlGn', len(av_snrs))
-        fig, axes = plt.subplots(ncols=task_id+1, nrows=1, figsize=(5*(task_id+1), 4),
+        fig, axes = plt.subplots(ncols=task_id + 1, nrows=1, figsize=(5 * (task_id + 1), 4),
                                  sharey=True, constrained_layout=True)
         if task_id == 0:
             axes = np.expand_dims(axes, 0)
-        for task in range(task_id+1):
+        for task in range(task_id + 1):
             snr_to_plot = [s[task] for s in av_snrs]
             for i in range(len(snr_to_plot)):
                 axes[task].plot(snr_to_plot[i], c=cmap(i))
             axes[task].grid(True)
         # Normalizer
-        norm = mpl.colors.Normalize(vmin=0, vmax=len(av_snrs)-1)
+        norm = mpl.colors.Normalize(vmin=0, vmax=len(av_snrs) - 1)
 
         # creating ScalarMappable
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        cbar = plt.colorbar(sm, ticks=np.linspace(0, len(av_snrs)-1, len(av_snrs)))
+        cbar = plt.colorbar(sm, ticks=np.linspace(0, len(av_snrs) - 1, len(av_snrs)))
         cbar.ax.set_yticklabels(save_steps)
         logs = {"plot/final_snr_linear": wandb.Image(fig)}
         # log scale
-        fig, axes = plt.subplots(ncols=task_id+1, nrows=1, figsize=(5*(task_id+1), 4),
+        fig, axes = plt.subplots(ncols=task_id + 1, nrows=1, figsize=(5 * (task_id + 1), 4),
                                  sharey=True, constrained_layout=True)
         if task_id == 0:
             axes = np.expand_dims(axes, 0)
-        for task in range(task_id+1):
+        for task in range(task_id + 1):
             snr_to_plot = [s[task] for s in av_snrs]
             for i in range(len(snr_to_plot)):
                 axes[task].plot(th.log(snr_to_plot[i]), c=cmap(i))
@@ -523,7 +528,7 @@ class TrainLoop:
         # Normalizer
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        cbar = plt.colorbar(sm, ticks=np.linspace(0, len(av_snrs)-1, len(av_snrs)))
+        cbar = plt.colorbar(sm, ticks=np.linspace(0, len(av_snrs) - 1, len(av_snrs)))
         cbar.ax.set_yticklabels(save_steps)
         logs["plot/final_snr_log"] = wandb.Image(fig)
         if logger.get_rank_without_mpi_import() == 0:
@@ -532,7 +537,7 @@ class TrainLoop:
     @th.no_grad()
     def draw_snr_plot(self, snr_bwd_fl, snr_fwd_fl, log_scale=True):
         n_task = len(snr_bwd_fl)
-        fig, axes = plt.subplots(ncols=n_task, nrows=2, figsize=(5*n_task, 8),
+        fig, axes = plt.subplots(ncols=n_task, nrows=2, figsize=(5 * n_task, 8),
                                  sharey=True, sharex=True, constrained_layout=True)
         if n_task == 1:
             axes = np.expand_dims(axes, 0)
@@ -582,7 +587,7 @@ class TrainLoop:
             # get q(x_{i} | x_{i-1})
             mu = _extract_into_tensor(np.sqrt(1.0 - self.diffusion.betas), t, shape) * x_curr
             var = _extract_into_tensor(self.diffusion.betas, t, shape)
-            snr_fwd.append(mu**2 / var)
+            snr_fwd.append(mu ** 2 / var)
             # sample x_{i}
             noise = th.randn_like(x_curr)
             x_curr = mu + (var ** 0.5) * noise
@@ -592,7 +597,7 @@ class TrainLoop:
                 model, x_curr, t, clip_denoised=False, model_kwargs=model_kwargs
             )
             x_p.append(p_out['mean'][:save_x] + (p_out['variance'][:save_x] ** 0.5) * th.randn_like(x_curr[:save_x]))
-            snr_bwd.append(p_out['mean']**2 / p_out['variance'])
+            snr_bwd.append(p_out['mean'] ** 2 / p_out['variance'])
             if i > 0:
                 # get q(x_{i-1} | x_{i}, x_0) - posterior
                 true_mean, true_var, true_log_variance_clipped = self.diffusion.q_posterior_mean_variance(
@@ -600,7 +605,7 @@ class TrainLoop:
                 )
                 kl.append(mean_flat(normal_kl(
                     true_mean, true_log_variance_clipped, p_out["mean"], p_out["log_variance"]
-                    )))
+                )))
         return th.stack(snr_fwd), th.stack(snr_bwd), th.stack(kl), th.cat(x_q), th.cat(x_p)
 
     @th.no_grad()
@@ -623,7 +628,8 @@ class TrainLoop:
             )
             img = out["sample"]
         self.model.train()
-        to_plot = th.cat([batch[:num_exammples], x_t[:num_exammples],img[:num_exammples]])
+        to_plot = th.cat([batch[:num_exammples], x_t[:num_exammples], img[:num_exammples]])
+        to_plot = th.clamp(to_plot, -1, 1)
         samples_grid = make_grid(to_plot.detach().cpu(), num_exammples, normalize=True).permute(1, 2, 0)
         sample_wandb = wandb.Image(samples_grid.permute(2, 0, 1), caption=f"sample_task_{task_id}")
         if logger.get_rank_without_mpi_import() == 0:
@@ -714,7 +720,7 @@ def log_loss_dict(diffusion, ts, losses):
 
 def time_hist(ax, data):
     num_pt, num_ts = data.shape
-    num_fine = num_pt*10
+    num_fine = num_pt * 10
     x_fine = np.linspace(0, num_pt, num_fine)
     y_fine = np.empty((num_ts, num_fine), dtype=float)
     for i in range(num_ts):

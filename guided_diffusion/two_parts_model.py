@@ -1,7 +1,6 @@
 import torch as th
 import torch.nn as nn
 
-
 from guided_diffusion.unet import UNetModel
 
 
@@ -57,7 +56,8 @@ class TwoPartsUNetModel(nn.Module):
             use_scale_shift_norm=False,
             resblock_updown=False,
             use_new_attention_order=False,
-            model_switching_timestep=None
+            model_switching_timestep=None,
+            dae_only=False
     ):
         super().__init__()
 
@@ -92,15 +92,15 @@ class TwoPartsUNetModel(nn.Module):
                                 channel_mult,
                                 conv_resample,
                                 dims,
-                                num_classes,
-                                use_checkpoint,
-                                use_fp16,
-                                num_heads,
-                                num_head_channels,
-                                num_heads_upsample,
-                                use_scale_shift_norm,
-                                resblock_updown,
-                                use_new_attention_order)
+                                num_classes=None,
+                                use_checkpoint=use_checkpoint,
+                                use_fp16=use_fp16,
+                                num_heads=num_heads,
+                                num_head_channels=num_head_channels,
+                                num_heads_upsample=num_heads_upsample,
+                                use_scale_shift_norm=use_scale_shift_norm,
+                                resblock_updown=resblock_updown,
+                                use_new_attention_order=use_new_attention_order)
 
         self.unet_2 = UNetModel(image_size,
                                 in_channels,
@@ -133,11 +133,11 @@ class TwoPartsUNetModel(nn.Module):
         """
         timesteps_unet_1 = timesteps < self.switching_point
         timesteps_unet_2 = ~timesteps_unet_1
-        out = th.zeros(x.shape[0],x.shape[1]*2,x.shape[2],x.shape[3],device=x.device)
-        if timesteps_unet_1.sum()>0:
-            x_1 = self.unet_1(x[timesteps_unet_1], timesteps[timesteps_unet_1], y[timesteps_unet_1])
+        out = th.zeros(x.shape[0], x.shape[1] * 2, x.shape[2], x.shape[3], device=x.device)
+        if timesteps_unet_1.sum() > 0:
+            x_1 = self.unet_1(x[timesteps_unet_1], th.zeros_like(timesteps)[timesteps_unet_1])
             out[timesteps_unet_1] = x_1
-        if timesteps_unet_2.sum()>0:
-            x_2 = self.unet_2(x[timesteps_unet_2], timesteps[timesteps_unet_2], y[timesteps_unet_2])
+        if timesteps_unet_2.sum() > 0:
+            x_2 = self.unet_2(x[timesteps_unet_2], timesteps[timesteps_unet_2])
             out[timesteps_unet_2] = x_2
         return out

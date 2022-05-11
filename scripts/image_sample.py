@@ -46,13 +46,6 @@ def main():
         model.load_state_dict(
             dist_util.load_state_dict(args.model_path, map_location="cpu")
         )
-    elif args.model_name == "TwoPartsUNetModel":
-        model.unet_1.load_state_dict(
-            dist_util.load_state_dict(args.dae_path , map_location="cpu")
-        )
-        model.unet_2.load_state_dict(
-            dist_util.load_state_dict(args.model_path , map_location="cpu")
-        )
     else:
         model.unet_1.load_state_dict(
             dist_util.load_state_dict(args.model_path + "_part_1.pt", map_location="cpu")
@@ -134,7 +127,6 @@ def create_argparser():
         model_path="",
         gpu_id=-1,
         num_tasks=1,
-        dae_path="",
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

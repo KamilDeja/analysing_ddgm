@@ -107,10 +107,10 @@ def main():
     # diffusion.dae_model = False
     for task_id in range(args.num_tasks):
         data = yielder(val_loaders[task_id])
-        run_bpd_evaluation(model, diffusion, data, args.num_samples, args.clip_denoised, args.class_cond)
+        run_bpd_evaluation(model, diffusion, data, args.num_samples, args.clip_denoised, args.class_cond, skip_last=args.skip_last)
 
 
-def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised, class_cond):
+def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised, class_cond, skip_last):
     all_bpd = []
     all_metrics = {"vb": [], "mse": [], "xstart_mse": []}
     num_complete = 0
@@ -122,7 +122,7 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised, class
         else:
             model_kwargs = {}
         minibatch_metrics = diffusion.calc_bpd_loop(
-            model, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
+            model, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs, skip_last=skip_last
         )
 
         for key, term_list in all_metrics.items():
@@ -169,6 +169,7 @@ def create_argparser():
         train_aug=False,
         limit_data=None,
         use_task_index=True,
+        skip_last=False
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
