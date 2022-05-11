@@ -12,10 +12,14 @@ import numpy as np
 import torch as th
 import os
 
+from .lap_loss import LapLoss
 from .two_parts_model import TwoPartsUNetModel
 
 if os.uname().nodename == "titan4":
     from guided_diffusion import dist_util_titan as dist_util
+elif os.uname().nodename == "node7001.grid4cern.if.pw.edu.pl":
+    print("import dwarf utils")
+    from guided_diffusion import dist_util_dwarf as dist_util
 else:
     from guided_diffusion import dist_util
 
@@ -147,7 +151,8 @@ class GaussianDiffusion:
             model_var_type,
             loss_type,
             rescale_timesteps=False,
-            dae_model=False
+            dae_model=False,
+            use_lap_loss=True
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -194,6 +199,7 @@ class GaussianDiffusion:
         )
         self.dae_model = dae_model
         self.calculate_nll = False
+        self.lap_loss_fn = LapLoss(device=dist_util.dev()) if use_lap_loss else None
 
     def q_mean_variance(self, x_start, t):
         """
@@ -354,7 +360,8 @@ class GaussianDiffusion:
             "variance": model_variance,
             "log_variance": model_log_variance,
             "pred_xstart": pred_xstart,
-            "res_out": res_out
+            "res_out": res_out,
+            "raw_out": model_output
         }
 
     def _predict_xstart_from_eps(self, x_t, t, eps):
@@ -785,8 +792,8 @@ class GaussianDiffusion:
                 decoder_loss_0 = th.Tensor([0.0]).to(dist_util.dev())
         else:
             if self.dae_model and self.calculate_nll:
-                out["log_variance"] = th.zeros_like(out["log_variance"]) + np.log(
-                    self.betas[0])  # 1e-1 #self.constant_sigma
+                out["log_variance"] = th.zeros_like(out["log_variance"]) -5 #+ np.log(
+                    # self.betas[0])  # 1e-1 #self.constant_sigma
             decoder_nll = -discretized_gaussian_log_likelihood(
                 x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
             )
@@ -919,7 +926,11 @@ class GaussianDiffusion:
                 else:
                     terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            # model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            out = self.p_mean_variance(
+                model, x_t, t, clip_denoised=False, model_kwargs=model_kwargs
+            )
+            model_output = out["raw_out"]
 
             if self.model_var_type in [
                 ModelVarType.LEARNED,
@@ -949,22 +960,30 @@ class GaussianDiffusion:
                     else:
                         terms["vb"] *= self.num_timesteps / 1000
 
-            target = {
+            all_targets = {
                 ModelMeanType.PREVIOUS_X: self.q_posterior_mean_variance(
                     x_start=x_start, x_t=x_t, t=t
                 )[0],
                 ModelMeanType.START_X: x_start,
                 ModelMeanType.EPSILON: noise,
-            }[self.model_mean_type]
+            }
+            target = all_targets[self.model_mean_type]
             assert model_output.shape == target.shape == x_start.shape
             terms["mse"] = mean_flat((target - model_output) ** 2)
             # if self.dae_model:
             #     mse_0_step = mean_flat((x_start - model_output) ** 2)
             #     terms["mse"][t==0] = mse_0_step[t==0]
+
             if "vb" in terms:
                 terms["loss"] = terms["mse"] + terms["vb"]
             else:
                 terms["loss"] = terms["mse"]
+
+            if self.lap_loss_fn:
+                terms["lap_loss"] = th.zeros_like(terms["loss"])
+                if (t==0).sum()>0:
+                    terms["lap_loss"][t==0] = self.lap_loss_fn(out["mean"][t==0], x_start[t==0])
+                terms["loss"] = terms["loss"] + terms["lap_loss"]#/(t==0).sum()
         else:
             raise NotImplementedError(self.loss_type)
 
@@ -988,7 +1007,7 @@ class GaussianDiffusion:
         )
         return mean_flat(kl_prior) / np.log(2.0)
 
-    def calc_bpd_loop(self, model, x_start, clip_denoised=True, model_kwargs=None):
+    def calc_bpd_loop(self, model, x_start, clip_denoised=True, model_kwargs=None, skip_last=False):
         """
         Compute the entire variational lower-bound, measured in bits-per-dim,
         as well as other related quantities.
@@ -1012,7 +1031,11 @@ class GaussianDiffusion:
         vb = []
         xstart_mse = []
         mse = []
-        for t in list(range(self.num_timesteps))[::-1]:
+        if skip_last:
+            indices = list(range(self.num_timesteps))[::-1][:-1]
+        else:
+            indices = list(range(self.num_timesteps))[::-1]
+        for t in indices:
             t_batch = th.tensor([t] * batch_size, device=device)
             noise = th.randn_like(x_start)
             x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)

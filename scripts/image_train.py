@@ -25,6 +25,8 @@ import os
 
 if os.uname().nodename == "titan4":
     from guided_diffusion import dist_util_titan as dist_util
+elif os.uname().nodename == "node7001.grid4cern.if.pw.edu.pl":
+    from guided_diffusion import dist_util_dwarf as dist_util
 else:
     from guided_diffusion import dist_util
 
@@ -60,8 +62,16 @@ def main():
         os.environ["WANDB_API_KEY"] = args.wandb_api_key
         wandb.init(project="continual_diffusion", name=args.experiment_name, config=args, entity="generative_cl")
 
-    train_dataset, val_dataset, image_size, image_channels = base.__dict__[args.dataset](args.dataroot,
-                                                                                         train_aug=args.train_aug)
+    if args.img_size:
+        args.img_size = int(args.img_size)
+        train_dataset, val_dataset, image_size, image_channels = base.__dict__[args.dataset](args.dataroot,
+                                                                                             train_aug=args.train_aug,
+                                                                                             resolution=args.img_size)
+    else:
+        train_dataset, val_dataset, image_size, image_channels = base.__dict__[args.dataset](args.dataroot,
+                                                                                             train_aug=args.train_aug)
+
+    print(f"Training with image size:{image_size}")
 
     args.image_size = image_size
     args.in_channels = image_channels
@@ -289,7 +299,8 @@ def create_argparser():
         generate_previous_examples_at_start_of_new_task=False,
         generate_previous_samples_continuously=True,
         load_model_path=None,
-        load_pretrained_for_dae=False
+        load_pretrained_for_dae=False,
+        img_size=None
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

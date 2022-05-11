@@ -44,6 +44,7 @@ def main():
         args.rescale_timesteps = True
     else:
         args.noise_schedule = "linear" #_combine
+    args.learn_sigma = args.learn_sigma_1
     args.model_name = "UNetModel"
     model_2, diffusion_2 = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
@@ -52,6 +53,7 @@ def main():
     args.noise_schedule = "linear_combine" #_combine
     args.model_name = "TwoPartsUNetModelDAE"
     args.dae_only = True
+    args.learn_sigma = args.learn_sigma_2
     model_1, diffusion_1 = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
@@ -135,7 +137,9 @@ def create_argparser():
         gpu_id=-1,
         num_tasks=1,
         dae_path="",
-        old_repo_compatible=False
+        old_repo_compatible=False,
+        learn_sigma_1=False,
+        learn_sigma_2=False
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

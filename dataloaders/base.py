@@ -31,13 +31,15 @@ def CelebA(root, skip_normalization=False, train_aug=False, image_size=64, targe
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
-    dataset = torchvision.datasets.CelebA(root=root, download=True, transform=transform,
-                                          target_type=target_type)
     print("Loading data")
-    save_path = f"{root}/fast_celeba"
+    save_path = f"{root}/fast_celeba_{image_size}"
     if os.path.exists(save_path):
+        print(f"Loading from {save_path}")
         fast_celeba = torch.load(save_path)
     else:
+        dataset = torchvision.datasets.CelebA(root=root, download=True, transform=transform,
+                                              target_type=target_type)
+        print(f"{save_path} not found downloading")
         train_loader = DataLoader(dataset, batch_size=len(dataset))
         data = next(iter(train_loader))
         fast_celeba = FastCelebA(data[0], data[1])
@@ -397,7 +399,8 @@ def LSUN(dataroot, skip_normalization=False, train_aug=False):
 
     return train_dataset, train_dataset, resolution, 3
 
-def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 64):
+def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 32):
+    resolution = int(resolution)
     dataset_dir = dataroot + "ImageNet/train"
     all_files = _list_image_files_recursively(dataset_dir)
     train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
