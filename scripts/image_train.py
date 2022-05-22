@@ -58,7 +58,6 @@ def main():
 
     if logger.get_rank_without_mpi_import() == 0:
         import wandb
-        # print("Init wandb")
         os.environ["WANDB_API_KEY"] = args.wandb_api_key
         wandb.init(project="continual_diffusion", name=args.experiment_name, config=args, entity="generative_cl")
 
@@ -75,7 +74,7 @@ def main():
 
     args.image_size = image_size
     args.in_channels = image_channels
-    if args.dataset.lower() == "celeba":
+    if args.dataset.lower() in ["celeba"]:
         n_classes = 10
     else:
         n_classes = train_dataset.number_classes
@@ -85,8 +84,6 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys()), dae_only=args.schedule_sampler == "only_dae"
     )
-    # if not os.environ.get("WANDB_MODE") == "disabled":
-    #     wandb.watch(model, log_freq=10)
     model.to(dist_util.dev())
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion, args)
 
@@ -114,7 +111,7 @@ def main():
                 val_data = train_dataset_splits[task_id]
             val_loader = data.DataLoader(dataset=val_data,
                                          batch_size=args.microbatch if args.microbatch > 0 else args.batch_size,
-                                         shuffle=args.schedule_sampler == "only_dae", drop_last=True)
+                                         shuffle=args.schedule_sampler == "only_dae", drop_last=True, num_workers=32)
             val_loaders.append(val_loader)
 
         stats_file_name = f"seed_{args.seed}_tasks_{args.num_tasks}_random_{args.random_split}_dirichlet_{args.dirichlet}_limit_{args.limit_data}"
@@ -139,12 +136,12 @@ def main():
         if task_id == 0:
             train_dataset_loader = data.DataLoader(dataset=train_dataset_splits[task_id],
                                                    batch_size=args.batch_size, shuffle=True,
-                                                   drop_last=True)
+                                                   drop_last=True, num_workers=32)
             dataset_yielder = yielder(train_dataset_loader)
         elif not args.generate_previous_examples_at_start_of_new_task:
             train_dataset_loader = data.DataLoader(dataset=train_dataset_splits[task_id],
                                                    batch_size=args.batch_size // (task_id + 1), shuffle=True,
-                                                   drop_last=True)
+                                                   drop_last=True, num_workers=32)
             dataset_yielder = yielder(train_dataset_loader)
         else:
             print("Preparing dataset for rehearsal...")
@@ -209,9 +206,7 @@ def main():
             validator=validator,
             validation_interval=args.validation_interval
         )
-        if args.load_model_path is None:
-            train_loop.run_loop()
-        else:
+        if args.load_model_path is not None:
             if args.model_name == "UNetModel":
                 model.load_state_dict(
                     dist_util.load_state_dict(args.load_model_path + ".pt", map_location="cpu")
@@ -224,6 +219,9 @@ def main():
                     dist_util.load_state_dict(args.load_model_path + "_part_2.pt", map_location="cpu")
                 )
             model.to(dist_util.dev())
+            train_loop.step = int(args.load_model_path[-8:-2])
+        train_loop.run_loop()
+
         if args.schedule_sampler == "only_dae":
             train_loop.plot_dae_only(task_id, step=0)
         else:

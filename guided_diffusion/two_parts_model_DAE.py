@@ -64,6 +64,7 @@ class TwoPartsUNetModelDAE(nn.Module):
 
         if num_heads_upsample == -1:
             num_heads_upsample = num_heads
+        self.dae_only = dae_only
         self.constant_sigma = constant_sigma
         self.image_size = image_size
         self.in_channels = in_channels
