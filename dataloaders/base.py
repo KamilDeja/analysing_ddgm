@@ -9,7 +9,6 @@ import torch
 from torch.utils.data import Dataset, DataLoader, Subset, TensorDataset, ConcatDataset
 from dataloaders.image_datasets import ImageDataset, _list_image_files_recursively
 
-
 class FastCelebA(Dataset):
     def __init__(self, data, attr):
         self.dataset = data
@@ -20,6 +19,18 @@ class FastCelebA(Dataset):
 
     def __getitem__(self, index):
         return self.dataset[index], self.attr[index]
+
+class FastDataset(Dataset):
+    def __init__(self, data, labels):
+        self.dataset = data
+        self.labels = labels
+        self.number_classes = 1000
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        return self.dataset[index], self.labels[index]
 
 
 def CelebA(root, skip_normalization=False, train_aug=False, image_size=64, target_type='attr'):
@@ -39,7 +50,7 @@ def CelebA(root, skip_normalization=False, train_aug=False, image_size=64, targe
     else:
         dataset = torchvision.datasets.CelebA(root=root, download=True, transform=transform,
                                               target_type=target_type)
-        print(f"{save_path} not found downloading")
+        print(f"{save_path} not found, creating new")
         train_loader = DataLoader(dataset, batch_size=len(dataset))
         data = next(iter(train_loader))
         fast_celeba = FastCelebA(data[0], data[1])
@@ -399,17 +410,37 @@ def LSUN(dataroot, skip_normalization=False, train_aug=False):
 
     return train_dataset, train_dataset, resolution, 3
 
-def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 32):
+def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 64):
     resolution = int(resolution)
     dataset_dir = dataroot + "ImageNet/train"
     all_files = _list_image_files_recursively(dataset_dir)
+    print(f"Total number of files:{len(all_files)}")
     train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
-    # dataset_dir = dataroot + "ImageNet/test"
-    # all_files = _list_image_files_recursively(dataset_dir)
-    # test_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
 
     return train_dataset, train_dataset, resolution, 3
 
+def FastImageNet(root, skip_normalization=False, train_aug=False, image_size=64): #Requires a lot of memory
+    transform = transforms.Compose([
+
+        transforms.Resize(image_size),
+        transforms.RandomHorizontalFlip(),
+        transforms.CenterCrop(image_size),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    ])
+    print("Loading data")
+    save_path = f"{root}/fast_imagenet_{image_size}"
+    if os.path.exists(save_path):
+        print(f"Loading from {save_path}")
+        fast_imagenet = torch.load(save_path)
+    else:
+        dataset, _, _, _ = ImageNet(dataroot=root,resolution=image_size)
+        print(f"{save_path} not found downloading")
+        train_loader = DataLoader(dataset, batch_size=len(dataset))
+        data = next(iter(train_loader))
+        fast_imagenet = FastDataset(data[0], data[1])
+        torch.save(fast_imagenet, save_path)
+    return fast_imagenet, None, image_size, 3
 
 def CIFAR10AUG(dataroot, skip_normalization=False, train_aug=False):
     dataset_dir = dataroot + "cifar_train/"

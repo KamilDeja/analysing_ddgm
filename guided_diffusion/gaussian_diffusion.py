@@ -10,7 +10,10 @@ import math
 
 import numpy as np
 import torch as th
+from . import logger
 import os
+
+from torch.autograd.functional import hvp
 
 from .lap_loss import LapLoss
 from .two_parts_model import TwoPartsUNetModel
@@ -152,12 +155,14 @@ class GaussianDiffusion:
             loss_type,
             rescale_timesteps=False,
             dae_model=False,
-            use_lap_loss=True
+            use_lap_loss=True,
+            noise_marg_reg=False
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
         self.loss_type = loss_type
         self.rescale_timesteps = rescale_timesteps
+        self.noise_marg_reg = noise_marg_reg
 
         # Use float64 for accuracy.
         betas = np.array(betas, dtype=np.float64)
@@ -561,7 +566,7 @@ class GaussianDiffusion:
 
             indices = tqdm(indices)
 
-        if limit_indices is not None and  (limit_indices > 1):
+        if limit_indices is not None and (limit_indices > 1):
             indices = indices[:-(limit_indices - 1)]
             indices[-1] = 0
 
@@ -792,7 +797,8 @@ class GaussianDiffusion:
                 decoder_loss_0 = th.Tensor([0.0]).to(dist_util.dev())
         else:
             if self.dae_model and self.calculate_nll:
-                out["log_variance"] = th.zeros_like(out["log_variance"]) + np.log(self.betas[0])  # 1e-1 #self.constant_sigma
+                out["log_variance"] = th.zeros_like(out["log_variance"]) + np.log(
+                    self.betas[0])  # 1e-1 #self.constant_sigma
             decoder_nll = -discretized_gaussian_log_likelihood(
                 x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
             )
@@ -888,7 +894,27 @@ class GaussianDiffusion:
 
         return kl.mean() * self.num_timesteps
 
-    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
+    def rademacher(self, shape, dtype=th.float32):
+        """Sample from Rademacher distribution."""
+        rand = ((th.rand(shape) < 0.5)) * 2 - 1
+        return rand.to(dtype).to(dist_util.dev())
+
+    def hutchinson_trace_autodiff(self, mu, x_0, t, model, V=100):
+        """Hessian trace estimate using autodiff HVPs."""
+        trace = 0
+
+        def mse_loss(mu):
+            return ((x_0 - model(mu, t))**2).mean()
+
+        for _ in range(V):
+            # vec = self.rademacher(mu.shape)
+            vec = th.randn_like(mu)
+            Hvec = hvp(mse_loss, mu, vec, create_graph=True)[1]
+            trace += (vec * Hvec).sum() / V
+
+        return trace
+
+    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None, dae_only=False):
         """
         Compute training losses for a single timestep.
 
@@ -909,7 +935,20 @@ class GaussianDiffusion:
 
         terms = {}
 
-        if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
+        if dae_only and self.noise_marg_reg:
+            if logger.get_rank_without_mpi_import() == 0:
+                sigma = self.betas[0]
+                mu = self.q_sample(x_start, t, noise=th.zeros_like(x_start))
+                out = self.p_mean_variance(
+                    model, mu, t, clip_denoised=False, model_kwargs=model_kwargs
+                )
+                mu_pred = out["mean"]
+                # mu_pred = model(mu, )
+                trace = self.hutchinson_trace_autodiff(mu, x_0=x_start, t=t, model=model)
+                terms["reg"] = 0.5 * sigma * trace
+                terms["mse"] = ((mu_pred - x_start) ** 2).mean()
+                terms["loss"] = 10000*terms["reg"] + terms["mse"]
+        elif self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
             vb_out = self._vb_terms_bpd(
                 model=model,
                 x_start=x_start,
@@ -980,9 +1019,10 @@ class GaussianDiffusion:
 
             if self.lap_loss_fn:
                 terms["lap_loss"] = th.zeros_like(terms["loss"])
-                if (t==0).sum()>0:
-                    terms["lap_loss"][t==0] = self.lap_loss_fn(out["mean"][t==0], x_start[t==0])
-                terms["loss"] = terms["loss"] + terms["lap_loss"]#/(t==0).sum()
+                if (t == 0).sum() > 0:
+                    terms["lap_loss"][t == 0] = self.lap_loss_fn(out["mean"][t == 0], x_start[t == 0])
+                terms["loss"] = terms["loss"] + terms["lap_loss"]  # /(t==0).sum()
+
         else:
             raise NotImplementedError(self.loss_type)
 

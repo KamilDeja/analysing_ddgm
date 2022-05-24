@@ -11,6 +11,8 @@ from dataloaders import base
 
 if os.uname().nodename == "titan4":
     from guided_diffusion import dist_util_titan as dist_util
+elif os.uname().nodename == "node7001.grid4cern.if.pw.edu.pl":
+    from guided_diffusion import dist_util_dwarf as dist_util
 else:
     from guided_diffusion import dist_util
 

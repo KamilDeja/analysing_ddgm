@@ -14,6 +14,8 @@ from guided_diffusion import logger
 
 if os.uname().nodename == "titan4":
     from guided_diffusion import dist_util_titan as dist_util
+elif os.uname().nodename == "node7001.grid4cern.if.pw.edu.pl":
+    from guided_diffusion import dist_util_dwarf as dist_util
 else:
     from guided_diffusion import dist_util
 
@@ -44,7 +46,7 @@ def main():
         args.rescale_timesteps = True
     else:
         args.noise_schedule = "linear" #_combine
-    args.learn_sigma = args.learn_sigma_1
+    args.learn_sigma = args.learn_sigma_2
     args.model_name = "UNetModel"
     model_2, diffusion_2 = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
@@ -53,7 +55,7 @@ def main():
     args.noise_schedule = "linear_combine" #_combine
     args.model_name = "TwoPartsUNetModelDAE"
     args.dae_only = True
-    args.learn_sigma = args.learn_sigma_2
+    args.learn_sigma = args.learn_sigma_1
     model_1, diffusion_1 = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )

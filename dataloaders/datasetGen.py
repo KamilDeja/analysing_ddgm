@@ -102,9 +102,9 @@ def data_split(dataset, dataset_name, return_classes=False, return_task_as_class
     else:
         class_indices = torch.LongTensor(dataset.labels)
 
-    if num_batches == 1:
-        class_indices = (
-                                class_indices - class_indices % 2) // 2  # To have the same classes as batch indices in normal setup
+    # if num_batches == 1:
+    #     class_indices = (
+    #                             class_indices - class_indices % 2) // 2  # To have the same classes as batch indices in normal setup
     # dirichlet_split_alpha = 1
     batch_indices = (torch.zeros(len(dataset), num_batches))
     if dirichlet_split_alpha != None:

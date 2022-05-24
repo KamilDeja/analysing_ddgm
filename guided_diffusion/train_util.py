@@ -314,6 +314,7 @@ class TrainLoop:
                 micro,
                 t,
                 model_kwargs=micro_cond,
+                dae_only=isinstance(self.schedule_sampler, DAEOnlySampler)
             )
 
             if last_batch or not self.use_ddp:
