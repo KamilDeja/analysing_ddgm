@@ -1,7 +1,7 @@
 # DAED
 
-This is the codebase for [On Analyzing Generative and Denoising Capabilities
-of Diffusion-based Deep Generative Models]().
+This is the codebase for On Analyzing Generative and Denoising Capabilities
+of Diffusion-based Deep Generative Models.
 
 This repository is based on [openai/guided-diffusion](https://github.com/openai/guided-diffusion), with modifications to analyze denoising and generative capabilities of DDGM
 
