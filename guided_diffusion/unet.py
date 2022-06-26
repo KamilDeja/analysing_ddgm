@@ -469,13 +469,16 @@ class UNetModel(nn.Module):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
 
-        time_embed_dim = model_channels * 4
+        # time_embed_dim = model_channels * 4
+        time_embed_dim = self.image_size * self.image_size * self.in_channels
+        self.time_embed_dim = time_embed_dim
         if self.num_classes is not None:
             time_embed_out = time_embed_dim -  self.num_classes
         else:
             time_embed_out = time_embed_dim
+        self.dct = DCT()
         self.time_embed = nn.Sequential(
-            linear(model_channels, time_embed_dim),
+            linear(time_embed_dim, time_embed_dim),
             nn.SiLU(),
             linear(time_embed_dim, time_embed_out),
         )
@@ -655,7 +658,12 @@ class UNetModel(nn.Module):
         ), "must specify y if and only if the model is class-conditional"
 
         hs = []
-        emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+
+        dct = self.dct(x)
+        emb = dct.flatten(1, 3)
+        emb = self.time_embed(emb)
+        # emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+        # emb = th.zeros([x.size(0),self.time_embed_dim],device=x.device)
 
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
@@ -718,6 +726,53 @@ class SuperResModel(UNetModel):
         x = th.cat([x, upsampled], dim=1)
         return super().forward(x, timesteps, **kwargs)
 
+# Discrete Cosine Transform for images (B x C x H x W)
+class DCT(nn.Module):
+    def __init__(self):
+        super(DCT, self).__init__()
+    @staticmethod
+    def dct_pytorch(x):
+        N = x.shape[-1]
+        A_n = th.pi * (th.arange(0, N) + 0.5) / N
+        ints = th.arange(0, N)
+        V_c = th.cos(th.einsum('ij,jk->ik', ints.unsqueeze(1), A_n.unsqueeze(0)))
+        z = 2. * th.einsum('ij,jk->ik', x, V_c.t().to(x.device))
+        return z
+    @staticmethod
+    def idct_pytorch(x):
+        N = x.shape[-1]
+        A_n = (th.pi * (th.arange(0, N) + 0.5) / N)
+        ints = (th.arange(1, N))
+        V_c = th.cos(th.einsum('ij,jk->ik', A_n.unsqueeze(1), ints.unsqueeze(0)))
+        z = (x[:, [0]] + 2. * th.einsum('ij,jk->ik', x[:, 1:], V_c.t().to(x.device))) / (2. * N)
+        return z
+    def dct2_pytorch(self, x):
+        assert len(x.shape) == 4
+        # x - B x C x H x W
+        s = x.shape
+        # X - B*C*H x W
+        X = x.reshape(s[0] * s[1] * s[2], s[3])
+        f = self.dct_pytorch(X)
+        # B*C*H x W -> B*C*W x H
+        F = self.dct_pytorch(f.reshape(*s).permute(0, 1, 3, 2).reshape(s[0] * s[1] * s[3], s[2]))
+        F = F.reshape(s[0], s[1], s[3], s[2]).permute(0, 1, 3, 2)
+        return F
+    def idct2_pytorch(self, x):
+        assert len(x.shape) == 4
+        # x - B x C x H x W
+        s = x.shape
+        # X - B*C*H x W
+        X = x.reshape(s[0] * s[1] * s[2], s[3])
+        f = self.idct_pytorch(X)
+        # B*C*H x W -> B*C*W x H
+        F = self.idct_pytorch(f.reshape(*s).permute(0, 1, 3, 2).reshape(s[0] * s[1] * s[3], s[2]))
+        F = F.reshape(s[0], s[1], s[3], s[2]).permute(0, 1, 3, 2)
+        return F
+    def forward(self, x, dct=True):
+        if dct:
+            return self.dct2_pytorch(x)
+        else:
+            return self.idct2_pytorch(x)
 
 class EncoderUNetModel(nn.Module):
     """
