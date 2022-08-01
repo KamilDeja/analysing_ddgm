@@ -79,7 +79,7 @@ def main():
     else:
         n_classes = train_dataset.number_classes
 
-    args.num_classes = args.num_tasks  # n_classes
+    args.num_classes = n_classes #args.num_tasks
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys()), dae_only=args.schedule_sampler == "only_dae"
@@ -166,7 +166,8 @@ def main():
             if args.use_task_index:
                 max_class = task_id
             else:
-                raise NotImplementedError()  # Classes seen so far for plotting and sampling
+                max_class = n_classes
+                # raise NotImplementedError()  # Classes seen so far for plotting and sampling
         else:
             max_class = None
         logger.log(f"training task {task_id}")

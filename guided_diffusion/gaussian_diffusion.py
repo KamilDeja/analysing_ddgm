@@ -156,7 +156,8 @@ class GaussianDiffusion:
             rescale_timesteps=False,
             dae_model=False,
             use_lap_loss=True,
-            noise_marg_reg=False
+            noise_marg_reg=False,
+            train_classifier=True
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -205,6 +206,8 @@ class GaussianDiffusion:
         self.dae_model = dae_model
         self.calculate_nll = False
         self.lap_loss_fn = LapLoss(device=dist_util.dev()) if use_lap_loss else None
+        self.train_classifier = train_classifier
+        self.classifier_loss = th.nn.CrossEntropyLoss()
 
     def q_mean_variance(self, x_start, t):
         """
@@ -1017,6 +1020,13 @@ class GaussianDiffusion:
             else:
                 terms["loss"] = terms["mse"]
 
+            if self.train_classifier:
+                out_classifier = model.model.module.classify(x_start)
+                y = model_kwargs['y']
+                loss_classifier = self.classifier_loss(out_classifier, y)
+                terms["loss_classifier"] = loss_classifier
+                terms["loss"] += loss_classifier
+                # model.pa
             if self.lap_loss_fn:
                 terms["lap_loss"] = th.zeros_like(terms["loss"])
                 if (t == 0).sum() > 0:

@@ -46,7 +46,7 @@ class AppendName(data.Dataset):
     """
     A dataset wrapper that also return the name of the dataset/task
     """
-    def __init__(self, dataset, task_ids, return_classes=False, return_task_as_class=False, first_class_ind=0):
+    def __init__(self, dataset, task_ids, return_classes=True, return_task_as_class=False, first_class_ind=0):
         super(AppendName,self).__init__()
         self.dataset = dataset
         self.first_class_ind = first_class_ind

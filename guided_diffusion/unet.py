@@ -392,6 +392,18 @@ class QKVAttention(nn.Module):
     def count_flops(model, _x, y):
         return count_flops_attn(model, _x, y)
 
+class Classifier(nn.Module):
+    def __init__(self, in_features, n_classes):
+        super().__init__()
+        self.fc_1 = nn.Linear(in_features, in_features//2)
+        self.fc_2 = nn.Linear(in_features // 2, n_classes)
+
+    def forward(self,x):
+        x = x.flatten(1)
+        x = self.fc_1(x)
+        x = F.leaky_relu(x)
+        x = self.fc_2(x)
+        return x
 
 class UNetModel(nn.Module):
     """
@@ -462,30 +474,28 @@ class UNetModel(nn.Module):
         self.dropout = dropout
         self.channel_mult = channel_mult
         self.conv_resample = conv_resample
-        self.num_classes = num_classes
         self.use_checkpoint = use_checkpoint
         self.dtype = th.float16 if use_fp16 else th.float32
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
+        self.clasifier = Classifier(in_features=6272, n_classes=num_classes)
+        self.num_classes = num_classes
 
         time_embed_dim = model_channels * 4
-        if self.num_classes is not None:
-            time_embed_out = time_embed_dim -  self.num_classes
-        else:
-            time_embed_out = time_embed_dim
+        time_embed_out = time_embed_dim
         self.time_embed = nn.Sequential(
             linear(model_channels, time_embed_dim),
             nn.SiLU(),
             linear(time_embed_dim, time_embed_out),
         )
 
-        if self.num_classes is not None:
-            # self.label_emb = nn.Embedding(num_classes, time_embed_dim)
-            def emb_one_hot(x):
-                return F.one_hot(x.long(), self.num_classes)
-
-            self.label_emb = emb_one_hot
+        # if self.num_classes is not None:
+        #     # self.label_emb = nn.Embedding(num_classes, time_embed_dim)
+        #     def emb_one_hot(x):
+        #         return F.one_hot(x.long(), self.num_classes)
+        #
+        #     self.label_emb = emb_one_hot
 
         ch = input_ch = int(channel_mult[0] * model_channels)
         self.input_blocks = nn.ModuleList(
@@ -660,7 +670,7 @@ class UNetModel(nn.Module):
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
             # emb = emb + self.label_emb(y)
-            emb = th.cat([emb, self.label_emb(y)],1)
+            # emb = th.cat([emb, self.label_emb(y)],1)
 
         h = x.type(self.dtype)
         for module in self.input_blocks:
@@ -682,17 +692,17 @@ class UNetModel(nn.Module):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        assert (y is not None) == (
-                self.num_classes is not None
-        ), "must specify y if and only if the model is class-conditional"
+        # assert (y is not None) == (
+        #         self.num_classes is not None
+        # ), "must specify y if and only if the model is class-conditional"
 
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 
-        if self.num_classes is not None:
-            assert y.shape == (x.shape[0],)
-            # emb = emb + self.label_emb(y)
-            emb = th.cat([emb, self.label_emb(y)],1)
+        # if self.num_classes is not None:
+        #     assert y.shape == (x.shape[0],)
+        #     # emb = emb + self.label_emb(y)
+        #     emb = th.cat([emb, self.label_emb(y)],1)
 
         h = x.type(self.dtype)
         for module in self.input_blocks:
@@ -700,6 +710,11 @@ class UNetModel(nn.Module):
             hs.append(h)
         h = self.middle_block(h, emb)
         return h, hs
+
+    def classify(self, x):
+        t = th.zeros(x.size(0)).to(x.device)
+        internal_representations, _ = self.partial_forward(x, t)
+        return self.clasifier(internal_representations)
 
 
 class SuperResModel(UNetModel):
