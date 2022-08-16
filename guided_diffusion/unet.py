@@ -393,13 +393,25 @@ class QKVAttention(nn.Module):
         return count_flops_attn(model, _x, y)
 
 class Classifier(nn.Module):
-    def __init__(self, in_features, n_classes):
+    def __init__(self, n_classes, image_size):
         super().__init__()
-        self.fc_1 = nn.Linear(in_features, in_features//2)
-        self.fc_2 = nn.Linear(in_features // 2, n_classes)
+        if image_size == 28:
+            self.pooling = nn.MaxPool2d(7)
+            in_features = 128
+        elif image_size==32:
+            self.pooling = nn.MaxPool2d(4)
+            in_features = 256
+        elif image_size == 64:
+            raise NotImplementedError
+            #probably self.pooling = nn.MaxPool2d(8) model.model.module.classify(x_start)
+
+            #in_features = 512
+        self.fc_1 = linear(in_features, in_features//2)
+        self.fc_2 = linear(in_features // 2, n_classes)
 
     def forward(self,x):
-        x = x.flatten(1)
+        # x = x.flatten(1)
+        x = self.pooling(x).squeeze(2).squeeze(2)
         x = self.fc_1(x)
         x = F.leaky_relu(x)
         x = self.fc_2(x)
@@ -479,7 +491,7 @@ class UNetModel(nn.Module):
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
-        self.clasifier = Classifier(in_features=6272, n_classes=num_classes)
+        self.clasifier = Classifier(n_classes=num_classes, image_size=image_size)
         self.num_classes = num_classes
 
         time_embed_dim = model_channels * 4
@@ -714,6 +726,7 @@ class UNetModel(nn.Module):
     def classify(self, x):
         t = th.zeros(x.size(0)).to(x.device)
         internal_representations, _ = self.partial_forward(x, t)
+        # rep = torch.nn.MaxPool2d(8)(rep).squeeze(2).squeeze(2)
         return self.clasifier(internal_representations)
 
 

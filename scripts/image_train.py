@@ -111,7 +111,7 @@ def main():
                 val_data = train_dataset_splits[task_id]
             val_loader = data.DataLoader(dataset=val_data,
                                          batch_size=args.microbatch if args.microbatch > 0 else args.batch_size,
-                                         shuffle=args.schedule_sampler == "only_dae", drop_last=True, num_workers=32)
+                                         shuffle=args.schedule_sampler == "only_dae", drop_last=True)
             val_loaders.append(val_loader)
 
         stats_file_name = f"seed_{args.seed}_tasks_{args.num_tasks}_random_{args.random_split}_dirichlet_{args.dirichlet}_limit_{args.limit_data}"
