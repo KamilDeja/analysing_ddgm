@@ -243,22 +243,30 @@ class TrainLoop:
                     self.scheduler.step()
                 if self.step % self.validation_interval == 0:
                     logger.log(f"Validation for step {self.step}")
-                    if self.diffusion.dae_model:
-                        dae_result = self.validate_dae()
-                        logger.log(f"DAE test MAE: {dae_result:.3}")
+                    if self.params.train_with_classifier:
+                        preds, test_loss, test_accuracy = self.validator.calculate_accuracy_with_classifier(model=self.model ,task_id=self.task_id)
                         if logger.get_rank_without_mpi_import() == 0:
-                            wandb.log({"dae_test_MAE": dae_result})
-                    if not isinstance(self.schedule_sampler, DAEOnlySampler):
-                        fid_result, precision, recall = self.validator.calculate_results(train_loop=self,
-                                                                                         task_id=self.task_id,
-                                                                                         dataset=self.params.dataset,
-                                                                                         n_generated_examples=self.params.n_examples_validation,
-                                                                                         batch_size=self.params.microbatch if self.params.microbatch > 0 else self.params.batch_size)
-                        if logger.get_rank_without_mpi_import() == 0:
-                            wandb.log({"fid": fid_result})
-                            wandb.log({"precision": precision})
-                            wandb.log({"recall": recall})
-                        logger.log(f"FID: {fid_result}, Prec: {precision}, Rec: {recall}")
+                            wandb.log({"preds": preds})
+                            wandb.log({"test_classification_loss": test_loss})
+                            wandb.log({"test_classification_accuracy": test_accuracy})
+                            logger.log(f"Test classification loss: {test_loss}, Test acc: {test_accuracy}")
+                    else:
+                        if self.diffusion.dae_model:
+                            dae_result = self.validate_dae()
+                            logger.log(f"DAE test MAE: {dae_result:.3}")
+                            if logger.get_rank_without_mpi_import() == 0:
+                                wandb.log({"dae_test_MAE": dae_result})
+                        if not isinstance(self.schedule_sampler, DAEOnlySampler):
+                            fid_result, precision, recall = self.validator.calculate_results(train_loop=self,
+                                                                                             task_id=self.task_id,
+                                                                                             dataset=self.params.dataset,
+                                                                                             n_generated_examples=self.params.n_examples_validation,
+                                                                                             batch_size=self.params.microbatch if self.params.microbatch > 0 else self.params.batch_size)
+                            if logger.get_rank_without_mpi_import() == 0:
+                                wandb.log({"fid": fid_result})
+                                wandb.log({"precision": precision})
+                                wandb.log({"recall": recall})
+                            logger.log(f"FID: {fid_result}, Prec: {precision}, Rec: {recall}")
 
             self.step += 1
         # Save the last checkpoint if it wasn't already saved.

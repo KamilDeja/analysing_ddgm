@@ -47,6 +47,26 @@ class Validator:
         self.stats_file_name = f"{stats_file_name}_dims_{self.dims}"
 
     @torch.no_grad()
+    def calculate_accuracy_with_classifier(self, model, task_id):
+        model.eval()
+        test_loader = self.dataloaders[task_id]
+        correct = 0
+        total = 0
+        test_loss = 0
+        for idx, batch in enumerate(test_loader):
+            x, cond = batch
+            x = x.to(self.device)
+            y = cond['y'].to(self.device)
+            out_classifier = model.classify(x)
+            test_loss += torch.nn.CrossEntropyLoss()(out_classifier, y)
+            preds = torch.argmax(out_classifier,1)
+            correct += (preds == y).sum()
+            total+= len(y)
+        model.train()
+        return preds, test_loss/idx, correct/total
+
+
+    @torch.no_grad()
     def calculate_results(self, train_loop, task_id, n_generated_examples, dataset=None, batch_size=128):
         test_loader = self.dataloaders[task_id]
         distribution_orig = []

@@ -91,7 +91,7 @@ def main():
 
     train_dataset_splits, val_dataset_splits, task_output_space = data_split(dataset=train_dataset,
                                                                              return_classes=args.class_cond,
-                                                                             return_task_as_class=args.use_task_index and args.class_cond,
+                                                                             return_task_as_class=False,
                                                                              dataset_name=args.dataset.lower(),
                                                                              num_batches=args.num_tasks,
                                                                              num_classes=n_classes,
