@@ -449,3 +449,12 @@ def CIFAR10AUG(dataroot, skip_normalization=False, train_aug=False):
     train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
 
     return train_dataset, train_dataset, resolution, 3
+
+def Malaria(dataroot, skip_normalization=False, train_aug=False):
+    dataset_dir = dataroot + "cell_images"
+    all_files = _list_image_files_recursively(dataset_dir)
+    resolution = 64
+    classes = np.array(["Parasitized" in file for file in all_files]).astype(int)
+    train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=classes)
+
+    return train_dataset, train_dataset, resolution, 3

@@ -74,7 +74,8 @@ def model_and_diffusion_defaults():
         model_name="UNetModel",
         use_lap_loss=False,
         noise_marg_reg=False,
-        train_with_classifier=False
+        train_with_classifier=False,
+        train_only_classifier=False
     )
     res.update(diffusion_defaults())
     return res
@@ -118,7 +119,8 @@ def create_model_and_diffusion(
         dae_only=False,
         use_lap_loss=False,
         noise_marg_reg=False,
-        train_with_classifier=False
+        train_with_classifier=False,
+        train_only_classifier=False
 ):
     model = create_model(
         image_size,
@@ -156,7 +158,8 @@ def create_model_and_diffusion(
         dae_model=model_name in ["TwoPartsUNetModelDAE", "TwoPartsUNetModelDAE_EDSR"],
         use_lap_loss=use_lap_loss,
         noise_marg_reg=noise_marg_reg,
-        train_with_classifier=train_with_classifier
+        train_with_classifier=train_with_classifier,
+        train_only_classifier=train_only_classifier
     )
     return model, diffusion
 
@@ -454,7 +457,8 @@ def create_gaussian_diffusion(
         dae_model=False,
         use_lap_loss=False,
         noise_marg_reg=False,
-        train_with_classifier=False
+        train_with_classifier=False,
+        train_only_classifier=False
 ):
     betas = gd.get_named_beta_schedule(noise_schedule, steps, first_step_beta)
     if use_kl:
@@ -485,7 +489,8 @@ def create_gaussian_diffusion(
         dae_model=dae_model,
         use_lap_loss=use_lap_loss,
         noise_marg_reg=noise_marg_reg,
-        train_with_classifier=train_with_classifier
+        train_with_classifier=train_with_classifier,
+        train_only_classifier=train_only_classifier
     )
 
 

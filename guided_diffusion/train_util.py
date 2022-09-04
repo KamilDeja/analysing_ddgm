@@ -244,7 +244,8 @@ class TrainLoop:
                 if self.step % self.validation_interval == 0:
                     logger.log(f"Validation for step {self.step}")
                     if self.params.train_with_classifier:
-                        preds, test_loss, test_accuracy = self.validator.calculate_accuracy_with_classifier(model=self.model ,task_id=self.task_id)
+                        preds, test_loss, test_accuracy = self.validator.calculate_accuracy_with_classifier(
+                            model=self.model, task_id=self.task_id)
                         if logger.get_rank_without_mpi_import() == 0:
                             wandb.log({"preds": preds})
                             wandb.log({"test_classification_loss": test_loss})

@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 
 def main():
     args = create_argparser().parse_args()
-    # args.num_classes = 10 #args.num_tasks
+    args.num_classes = args.n_classes
     os.environ["OPENAI_LOGDIR"] = f"results/{args.experiment_name}"
     args.model_path = f"results/{args.experiment_name}/" + args.model_path
 
@@ -129,7 +129,7 @@ def create_argparser():
         model_path="",
         gpu_id=-1,
         num_tasks=1,
-        num_classes=10,
+        n_classes=10,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

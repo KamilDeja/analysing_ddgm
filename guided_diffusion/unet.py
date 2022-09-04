@@ -402,15 +402,12 @@ class Classifier(nn.Module):
             self.pooling = nn.MaxPool2d(4)
             in_features = 256
         elif image_size == 64:
-            raise NotImplementedError
-            #probably self.pooling = nn.MaxPool2d(8) model.model.module.classify(x_start)
-
-            #in_features = 512
+            self.pooling = nn.MaxPool2d(8) #model.model.module.classify(x_start)
+            in_features = 512
         self.fc_1 = linear(in_features, in_features//2)
         self.fc_2 = linear(in_features // 2, n_classes)
 
     def forward(self,x):
-        # x = x.flatten(1)
         x = self.pooling(x).squeeze(2).squeeze(2)
         x = self.fc_1(x)
         x = F.leaky_relu(x)
