@@ -467,7 +467,8 @@ class UNetModel(nn.Module):
             resblock_updown=False,
             use_new_attention_order=False,
             model_switching_timestep=None,
-            dae_only=False
+            dae_only=False,
+            train_with_classifier=False
     ):
         super().__init__()
 
@@ -488,7 +489,8 @@ class UNetModel(nn.Module):
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
-        self.clasifier = Classifier(n_classes=num_classes, image_size=image_size)
+        if train_with_classifier:
+            self.clasifier = Classifier(n_classes=num_classes, image_size=image_size)
         self.num_classes = num_classes
 
         time_embed_dim = model_channels * 4
@@ -701,9 +703,6 @@ class UNetModel(nn.Module):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        # assert (y is not None) == (
-        #         self.num_classes is not None
-        # ), "must specify y if and only if the model is class-conditional"
 
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
@@ -719,6 +718,15 @@ class UNetModel(nn.Module):
             hs.append(h)
         h = self.middle_block(h, emb)
         return h, hs
+
+    def finalise_forward(self, h, hs, timesteps):
+        emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+
+        for module in self.output_blocks:
+            h = th.cat([h, hs.pop()], dim=1)
+            h = module(h, emb)
+        # h = h.type(x.dtype)
+        return self.out(h)
 
     def classify(self, x):
         t = th.zeros(x.size(0)).to(x.device)

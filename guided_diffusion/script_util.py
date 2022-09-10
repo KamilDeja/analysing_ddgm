@@ -143,7 +143,8 @@ def create_model_and_diffusion(
         use_fp16=use_fp16,
         use_new_attention_order=use_new_attention_order,
         num_classes=num_classes,
-        dae_only = dae_only
+        dae_only = dae_only,
+        train_with_classifier=train_with_classifier
     )
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
@@ -185,7 +186,8 @@ def create_model(
         use_fp16=False,
         use_new_attention_order=False,
         num_classes=None,
-        dae_only=False
+        dae_only=False,
+        train_with_classifier=False
 ):
     if channel_mult == "":
         if image_size == 512:
@@ -212,13 +214,6 @@ def create_model(
     if model_name == "UNetModel":
         print("Using single model")
         from .unet import UNetModel as Model
-    elif model_name == "TwoPartsUNetModel":
-        print("Using two parts model")
-        from .two_parts_model import TwoPartsUNetModel as Model
-    elif model_name == "TwoPartsUNetModelDAE":
-        from .two_parts_model_DAE import TwoPartsUNetModelDAE as Model
-    elif model_name == "TwoPartsUNetModelDAE_EDSR":
-        from .two_parts_model_DAE_EDSR import TwoPartsUNetModelDAE as Model
     else:
         raise NotImplementedError
     return Model(
@@ -240,7 +235,8 @@ def create_model(
         resblock_updown=resblock_updown,
         use_new_attention_order=use_new_attention_order,
         model_switching_timestep=model_switching_timestep,
-        dae_only=dae_only
+        dae_only=dae_only,
+        train_with_classifier=train_with_classifier
     )
 
 def create_classifier_and_diffusion(
