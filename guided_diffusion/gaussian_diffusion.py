@@ -1023,7 +1023,7 @@ class GaussianDiffusion:
                 terms["loss"] = terms["mse"]
 
             if self.train_with_classifier:
-                out_classifier = model.model.module.classify(x_start)
+                out_classifier = model.model.module.classify(x_t, t)
                 y = model_kwargs['y']
                 loss_classifier = self.classifier_loss(out_classifier, y)
                 terms["loss_classifier"] = loss_classifier

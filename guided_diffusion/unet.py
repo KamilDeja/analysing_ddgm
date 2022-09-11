@@ -404,11 +404,14 @@ class Classifier(nn.Module):
         elif image_size == 64:
             self.pooling = nn.MaxPool2d(8) #model.model.module.classify(x_start)
             in_features = 512
-        self.fc_1 = linear(in_features, in_features//2)
+        self.fc_1 = linear(in_features + 1, in_features//2)
         self.fc_2 = linear(in_features // 2, n_classes)
 
-    def forward(self,x):
+    def forward(self, x, t):
         x = self.pooling(x).squeeze(2).squeeze(2)
+        # if t is None:
+        #     t = th.zeros(len(x)).to(x.device)
+        x = th.cat([x, t.unsqueeze(1)], 1)
         x = self.fc_1(x)
         x = F.leaky_relu(x)
         x = self.fc_2(x)
@@ -728,11 +731,12 @@ class UNetModel(nn.Module):
         # h = h.type(x.dtype)
         return self.out(h)
 
-    def classify(self, x):
-        t = th.zeros(x.size(0)).to(x.device)
+    def classify(self, x, t=None):
+        if t is None:
+            t = th.zeros(x.size(0)).to(x.device)
         internal_representations, _ = self.partial_forward(x, t)
         # rep = torch.nn.MaxPool2d(8)(rep).squeeze(2).squeeze(2)
-        return self.clasifier(internal_representations)
+        return self.clasifier(internal_representations, t)
 
 
 class SuperResModel(UNetModel):
