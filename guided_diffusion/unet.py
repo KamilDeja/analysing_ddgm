@@ -396,18 +396,18 @@ class Classifier(nn.Module):
     def __init__(self, n_classes, image_size):
         super().__init__()
         if image_size == 28:
-            self.pooling = nn.MaxPool2d(7)
+            self.pooling = nn.AvgPool2d(7)
             in_features = 128
         elif image_size==32:
-            self.pooling = nn.MaxPool2d(4)
+            self.pooling = nn.AvgPool2d(4)
             in_features = 256
         elif image_size == 64:
-            self.pooling = nn.MaxPool2d(8) #model.model.module.classify(x_start)
+            self.pooling = nn.AvgPool2d(8) #model.model.module.classify(x_start)
             in_features = 512
         self.fc_1 = linear(in_features + 1, in_features//2)
         self.fc_2 = linear(in_features // 2, n_classes)
 
-    def forward(self, x, t):
+    def forward(self, x, t=None):
         x = self.pooling(x).squeeze(2).squeeze(2)
         # if t is None:
         #     t = th.zeros(len(x)).to(x.device)
