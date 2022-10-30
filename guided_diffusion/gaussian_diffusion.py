@@ -158,7 +158,8 @@ class GaussianDiffusion:
             use_lap_loss=True,
             noise_marg_reg=False,
             train_with_classifier=True,
-            train_only_classifier=False
+            train_only_classifier=False,
+            train_noised_classifier=False
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -209,6 +210,7 @@ class GaussianDiffusion:
         self.lap_loss_fn = LapLoss(device=dist_util.dev()) if use_lap_loss else None
         self.train_with_classifier = train_with_classifier
         self.train_only_classifier = train_only_classifier
+        self.train_noised_classifier = train_noised_classifier
         self.classifier_loss = th.nn.CrossEntropyLoss()
 
     def q_mean_variance(self, x_start, t):
@@ -1023,7 +1025,10 @@ class GaussianDiffusion:
                 terms["loss"] = terms["mse"]
 
             if self.train_with_classifier:
-                out_classifier = model.model.module.classify(x_t, t)
+                if self.train_noised_classifier:
+                    out_classifier = model.model.module.classify(x_t, t)
+                else:
+                    out_classifier = model.model.module.classify(x_start, th.zeros_like(t))
                 y = model_kwargs['y']
                 loss_classifier = self.classifier_loss(out_classifier, y)
                 terms["loss_classifier"] = loss_classifier

@@ -392,30 +392,36 @@ class QKVAttention(nn.Module):
     def count_flops(model, _x, y):
         return count_flops_attn(model, _x, y)
 
+
 class Classifier(nn.Module):
     def __init__(self, n_classes, image_size):
         super().__init__()
         if image_size == 28:
             self.pooling = nn.AvgPool2d(7)
-            in_features = 128
-        elif image_size==32:
+            in_features = 128 * 8 + 64 * 5
+        elif image_size == 32:
             self.pooling = nn.AvgPool2d(4)
-            in_features = 256
+            in_features = 256 + 3456
         elif image_size == 64:
-            self.pooling = nn.AvgPool2d(8) #model.model.module.classify(x_start)
-            in_features = 512
-        self.fc_1 = linear(in_features + 1, in_features//2)
+            self.pooling = nn.AvgPool2d(8)  # model.model.module.classify(x_start)
+            in_features = 512 + 4736
+        self.fc_1 = linear(in_features + 1, in_features // 2)
         self.fc_2 = linear(in_features // 2, n_classes)
 
-    def forward(self, x, t=None):
+    def forward(self, x, hs, t=None):
         x = self.pooling(x).squeeze(2).squeeze(2)
+        hs_rep = []
+        for _hs in hs:
+            hs_rep.append(nn.AvgPool2d(_hs.size(2))(_hs).squeeze(2).squeeze(2))
+        hs_rep = th.cat(hs_rep, 1) 
         # if t is None:
         #     t = th.zeros(len(x)).to(x.device)
-        x = th.cat([x, t.unsqueeze(1)], 1)
+        x = th.cat([x, hs_rep, t.unsqueeze(1)], 1)
         x = self.fc_1(x)
         x = F.leaky_relu(x)
         x = self.fc_2(x)
         return x
+
 
 class UNetModel(nn.Module):
     """
@@ -493,7 +499,7 @@ class UNetModel(nn.Module):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
         if train_with_classifier:
-            self.clasifier = Classifier(n_classes=num_classes, image_size=image_size)
+            self.clasifier = Classifier(n_classes=num_classes, image_size=image_size, n_inputs= model_channels * 4)
         self.num_classes = num_classes
 
         time_embed_dim = model_channels * 4
@@ -734,9 +740,9 @@ class UNetModel(nn.Module):
     def classify(self, x, t=None):
         if t is None:
             t = th.zeros(x.size(0)).to(x.device)
-        internal_representations, _ = self.partial_forward(x, t)
+        internal_representations, hs = self.partial_forward(x, t)
         # rep = torch.nn.MaxPool2d(8)(rep).squeeze(2).squeeze(2)
-        return self.clasifier(internal_representations, t)
+        return self.clasifier(internal_representations, hs, t)
 
 
 class SuperResModel(UNetModel):

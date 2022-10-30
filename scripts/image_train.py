@@ -59,7 +59,7 @@ def main():
     if logger.get_rank_without_mpi_import() == 0:
         import wandb
         os.environ["WANDB_API_KEY"] = args.wandb_api_key
-        wandb.init(project="continual_diffusion", name=args.experiment_name, config=args, entity="generative_cl")
+        wandb.init(project="ddgm_representations", name=args.experiment_name, config=args, entity="kdeja")
 
     if args.img_size:
         args.img_size = int(args.img_size)

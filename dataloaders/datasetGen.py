@@ -146,6 +146,7 @@ def data_split(dataset, dataset_name, return_classes=False, return_task_as_class
         current_batch_indices = batch_indices[:, name] == 1
         current_train_indices = train_set_indices * current_batch_indices
         current_val_indices = (1 - train_set_indices) * current_batch_indices
+        assert (current_val_indices * current_train_indices).sum() == 0
         if limit_data:
             random_subset = torch.rand(len(current_train_indices))
             current_train_indices[random_subset > limit_data] = 0
