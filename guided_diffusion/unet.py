@@ -413,7 +413,7 @@ class Classifier(nn.Module):
         hs_rep = []
         for _hs in hs:
             hs_rep.append(nn.AvgPool2d(_hs.size(2))(_hs).squeeze(2).squeeze(2))
-        hs_rep = th.cat(hs_rep, 1) 
+        hs_rep = th.cat(hs_rep, 1)
         # if t is None:
         #     t = th.zeros(len(x)).to(x.device)
         x = th.cat([x, hs_rep, t.unsqueeze(1)], 1)
@@ -499,7 +499,7 @@ class UNetModel(nn.Module):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
         if train_with_classifier:
-            self.clasifier = Classifier(n_classes=num_classes, image_size=image_size, n_inputs= model_channels * 4)
+            self.clasifier = Classifier(n_classes=num_classes, image_size=image_size)
         self.num_classes = num_classes
 
         time_embed_dim = model_channels * 4
