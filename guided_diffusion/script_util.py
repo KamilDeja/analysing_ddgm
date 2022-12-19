@@ -27,6 +27,7 @@ def diffusion_defaults():
         timestep_respacing="",
         use_kl=False,
         predict_xstart=False,
+        predict_xprevious=False,
         rescale_timesteps=False,
         rescale_learned_sigmas=False,
     )
@@ -76,7 +77,8 @@ def model_and_diffusion_defaults():
         noise_marg_reg=False,
         train_with_classifier=False,
         train_only_classifier=False,
-        train_noised_classifier=False
+        train_noised_classifier=False,
+        multi_label_classifier=False
     )
     res.update(diffusion_defaults())
     return res
@@ -107,6 +109,7 @@ def create_model_and_diffusion(
         timestep_respacing,
         use_kl,
         predict_xstart,
+        predict_xprevious,
         rescale_timesteps,
         rescale_learned_sigmas,
         use_checkpoint,
@@ -122,7 +125,8 @@ def create_model_and_diffusion(
         noise_marg_reg=False,
         train_with_classifier=False,
         train_only_classifier=False,
-        train_noised_classifier=False
+        train_noised_classifier=False,
+        multi_label_classifier=False
 ):
     model = create_model(
         image_size,
@@ -155,6 +159,7 @@ def create_model_and_diffusion(
         first_step_beta=first_step_beta,
         use_kl=use_kl,
         predict_xstart=predict_xstart,
+        predict_xprevious=predict_xprevious,
         rescale_timesteps=rescale_timesteps,
         rescale_learned_sigmas=rescale_learned_sigmas,
         timestep_respacing=timestep_respacing,
@@ -163,7 +168,8 @@ def create_model_and_diffusion(
         noise_marg_reg=noise_marg_reg,
         train_with_classifier=train_with_classifier,
         train_only_classifier=train_only_classifier,
-        train_noised_classifier=train_noised_classifier
+        train_noised_classifier=train_noised_classifier,
+        multi_label_classifier=multi_label_classifier
     )
     return model, diffusion
 
@@ -259,6 +265,15 @@ def create_classifier_and_diffusion(
         predict_xstart,
         rescale_timesteps,
         rescale_learned_sigmas,
+        first_step_beta,
+        predict_xprevious=False,
+        dae_model=False,
+        use_lap_loss=False,
+        noise_marg_reg=False,
+        train_with_classifier=False,
+        train_only_classifier=False,
+        train_noised_classifier=False,
+        multi_label_classifier=False
 ):
     classifier = create_classifier(
         image_size,
@@ -301,6 +316,10 @@ def create_classifier(
         channel_mult = (1, 1, 2, 3, 4)
     elif image_size == 64:
         channel_mult = (1, 2, 3, 4)
+    elif image_size == 32:
+        channel_mult = (1, 2, 2, 2)
+    elif image_size == 28:
+        channel_mult = (1, 2, 2)
     else:
         raise ValueError(f"unsupported image size: {image_size}")
 
@@ -450,6 +469,7 @@ def create_gaussian_diffusion(
         first_step_beta=None,
         use_kl=False,
         predict_xstart=False,
+        predict_xprevious=False,
         rescale_timesteps=False,
         rescale_learned_sigmas=False,
         timestep_respacing="",
@@ -458,7 +478,8 @@ def create_gaussian_diffusion(
         noise_marg_reg=False,
         train_with_classifier=False,
         train_only_classifier=False,
-        train_noised_classifier=False
+        train_noised_classifier=False,
+        multi_label_classifier=False
 ):
     betas = gd.get_named_beta_schedule(noise_schedule, steps, first_step_beta)
     if use_kl:
@@ -469,12 +490,18 @@ def create_gaussian_diffusion(
         loss_type = gd.LossType.MSE
     if not timestep_respacing:
         timestep_respacing = [steps]
+
+    if predict_xstart:
+        model_mean_type = gd.ModelMeanType.START_X
+    elif predict_xprevious:
+        model_mean_type = gd.ModelMeanType.PREVIOUS_X
+    else:
+        model_mean_type = gd.ModelMeanType.EPSILON
+
     return SpacedDiffusion(
         use_timesteps=space_timesteps(steps, timestep_respacing),
         betas=betas,
-        model_mean_type=(
-            gd.ModelMeanType.EPSILON if not predict_xstart else gd.ModelMeanType.START_X
-        ),
+        model_mean_type= model_mean_type,
         model_var_type=(
             (
                 gd.ModelVarType.FIXED_LARGE
@@ -491,7 +518,8 @@ def create_gaussian_diffusion(
         noise_marg_reg=noise_marg_reg,
         train_with_classifier=train_with_classifier,
         train_only_classifier=train_only_classifier,
-        train_noised_classifier=train_noised_classifier
+        train_noised_classifier=train_noised_classifier,
+        multi_label_classifier=multi_label_classifier
     )
 
 

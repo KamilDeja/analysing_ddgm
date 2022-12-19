@@ -414,8 +414,6 @@ class Classifier(nn.Module):
         for _hs in hs:
             hs_rep.append(nn.AvgPool2d(_hs.size(2))(_hs).squeeze(2).squeeze(2))
         hs_rep = th.cat(hs_rep, 1)
-        # if t is None:
-        #     t = th.zeros(len(x)).to(x.device)
         x = th.cat([x, hs_rep, t.unsqueeze(1)], 1)
         x = self.fc_1(x)
         x = F.leaky_relu(x)
@@ -680,15 +678,15 @@ class UNetModel(nn.Module):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        assert (y is not None) == (
-                self.num_classes is not None
-        ), "must specify y if and only if the model is class-conditional"
+        # assert (y is not None) == (
+        #         self.num_classes is not None
+        # ), f"must specify y if and only if the model is class-conditional, y is {y}"
 
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 
         if self.num_classes is not None:
-            assert y.shape == (x.shape[0],)
+            assert y.shape[0] == x.shape[0]
             # emb = emb + self.label_emb(y)
             # emb = th.cat([emb, self.label_emb(y)],1)
 

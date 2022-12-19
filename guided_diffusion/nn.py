@@ -132,11 +132,11 @@ def checkpoint(func, inputs, params, flag):
                    explicitly take as arguments.
     :param flag: if False, disable gradient checkpointing.
     """
-    if flag:
-        args = tuple(inputs) + tuple(params)
-        return CheckpointFunction.apply(func, len(inputs), *args)
-    else:
-        return func(*inputs)
+    # if flag:
+    #     args = tuple(inputs) + tuple(params)
+    #     return CheckpointFunction.apply(func, len(inputs), *args)
+    # else:
+    return func(*inputs)
 
 
 class CheckpointFunction(th.autograd.Function):

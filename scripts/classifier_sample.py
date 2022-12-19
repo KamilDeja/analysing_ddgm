@@ -13,7 +13,6 @@ import torch.nn.functional as F
 
 from guided_diffusion import dist_util, logger
 from guided_diffusion.script_util import (
-    NUM_CLASSES,
     model_and_diffusion_defaults,
     classifier_defaults,
     create_model_and_diffusion,
@@ -21,6 +20,13 @@ from guided_diffusion.script_util import (
     add_dict_to_argparser,
     args_to_dict,
 )
+
+if os.uname().nodename == "titan4":
+    from guided_diffusion import dist_util_titan as dist_util
+elif os.uname().nodename == "node7001.grid4cern.if.pw.edu.pl":
+    from guided_diffusion import dist_util_dwarf as dist_util
+else:
+    from guided_diffusion import dist_util
 
 
 def main():
@@ -70,7 +76,7 @@ def main():
     while len(all_images) * args.batch_size < args.num_samples:
         model_kwargs = {}
         classes = th.randint(
-            low=0, high=NUM_CLASSES, size=(args.batch_size,), device=dist_util.dev()
+            low=0, high=args.n_classes, size=(args.batch_size,), device=dist_util.dev()
         )
         model_kwargs["y"] = classes
         sample_fn = (
@@ -119,6 +125,7 @@ def create_argparser():
         model_path="",
         classifier_path="",
         classifier_scale=1.0,
+        n_classes=10,
     )
     defaults.update(model_and_diffusion_defaults())
     defaults.update(classifier_defaults())

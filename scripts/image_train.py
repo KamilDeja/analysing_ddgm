@@ -75,7 +75,7 @@ def main():
     args.image_size = image_size
     args.in_channels = image_channels
     if args.dataset.lower() in ["celeba"]:
-        n_classes = 10
+        n_classes = 40
     else:
         n_classes = train_dataset.number_classes
 
@@ -100,7 +100,7 @@ def main():
                                                                              dirichlet_split_alpha=args.dirichlet,
                                                                              reverse=args.reverse,
                                                                              limit_classes=args.limit_classes,
-                                                                             val_size=0 if args.validate_on_train else 0.3)
+                                                                             val_size=0 if args.validate_on_train else 0.1)
 
     if not args.skip_validation:
         val_loaders = []
@@ -122,7 +122,8 @@ def main():
         if args.dataset.lower() != "cern":
             validator = Validator(n_classes=n_classes, device=dist_util.dev(), dataset=args.dataset,
                                   stats_file_name=stats_file_name,
-                                  score_model_device=device_for_validation, dataloaders=val_loaders)
+                                  score_model_device=device_for_validation, dataloaders=val_loaders,
+                                  multi_label_classifier=args.multi_label_classifier)
         else:
             raise NotImplementedError()  # Adapt CERN validator
             # validator = CERN_Validator(dataloaders=val_loaders, stats_file_name=stats_file_name, device=dist_util.dev())

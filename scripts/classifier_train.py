@@ -12,7 +12,13 @@ import torch.nn.functional as F
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim import AdamW
 
-from guided_diffusion import dist_util, logger
+from guided_diffusion import logger
+if os.uname().nodename == "titan4":
+    from guided_diffusion import dist_util_titan as dist_util
+elif os.uname().nodename == "node7001.grid4cern.if.pw.edu.pl":
+    from guided_diffusion import dist_util_dwarf as dist_util
+else:
+    from guided_diffusion import dist_util
 from guided_diffusion.fp16_util import MixedPrecisionTrainer
 from guided_diffusion.image_datasets import load_data
 from guided_diffusion.resample import create_named_schedule_sampler
@@ -28,17 +34,18 @@ from guided_diffusion.train_util import parse_resume_step_from_filename, log_los
 def main():
     args = create_argparser().parse_args()
 
-    dist_util.setup_dist()
+    dist_util.setup_dist(args)
     logger.configure()
 
     logger.log("creating model and diffusion...")
+    os.environ["OPENAI_LOGDIR"] = f"results/{args.experiment_name}"
     model, diffusion = create_classifier_and_diffusion(
         **args_to_dict(args, classifier_and_diffusion_defaults().keys())
     )
     model.to(dist_util.dev())
     if args.noised:
         schedule_sampler = create_named_schedule_sampler(
-            args.schedule_sampler, diffusion
+            args.schedule_sampler, diffusion, args
         )
 
     resume_step = 0
@@ -201,6 +208,8 @@ def split_microbatches(microbatch, *args):
 
 def create_argparser():
     defaults = dict(
+        experiment_name="test",
+        gpu_id=-1,
         data_dir="",
         val_data_dir="",
         noised=True,

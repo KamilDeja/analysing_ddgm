@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader, Subset, TensorDataset, ConcatDataset
 from dataloaders.image_datasets import ImageDataset, _list_image_files_recursively
 
+
 class FastCelebA(Dataset):
     def __init__(self, data, attr):
         self.dataset = data
@@ -20,11 +21,12 @@ class FastCelebA(Dataset):
     def __getitem__(self, index):
         return self.dataset[index], self.attr[index]
 
+
 class FastDataset(Dataset):
-    def __init__(self, data, labels):
+    def __init__(self, data, labels, num_classes):
         self.dataset = data
         self.labels = labels
-        self.number_classes = 1000
+        self.number_classes = num_classes
 
     def __len__(self):
         return len(self.dataset)
@@ -301,7 +303,7 @@ def CERN(dataroot, skip_normalization=False, train_aug=True, test_split=0.25):
     train_dataset = CacheClassLabel(train_dataset)
     test_dataset.root = dataroot
     test_dataset = CacheClassLabel(test_dataset)
-    raise NotImplementedError() #Check size
+    raise NotImplementedError()  # Check size
     return train_dataset, test_dataset
 
 
@@ -410,7 +412,16 @@ def LSUN(dataroot, skip_normalization=False, train_aug=False):
 
     return train_dataset, train_dataset, resolution, 3
 
-def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 64):
+def MNIST_mini(dataroot, skip_normalization=False, train_aug=False):
+    dataset_dir = dataroot + "mnist_limited/"
+    all_files = _list_image_files_recursively(dataset_dir)
+    resolution = 28
+    train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
+
+    return train_dataset, train_dataset, resolution, 1
+
+
+def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution=64):
     resolution = int(resolution)
     dataset_dir = dataroot + "ImageNet/train"
     all_files = _list_image_files_recursively(dataset_dir)
@@ -419,7 +430,8 @@ def ImageNet(dataroot, skip_normalization=False, train_aug=False, resolution = 6
 
     return train_dataset, train_dataset, resolution, 3
 
-def FastImageNet(root, skip_normalization=False, train_aug=False, image_size=64): #Requires a lot of memory
+
+def FastImageNet(root, skip_normalization=False, train_aug=False, image_size=64):  # Requires a lot of memory
     transform = transforms.Compose([
 
         transforms.Resize(image_size),
@@ -434,13 +446,14 @@ def FastImageNet(root, skip_normalization=False, train_aug=False, image_size=64)
         print(f"Loading from {save_path}")
         fast_imagenet = torch.load(save_path)
     else:
-        dataset, _, _, _ = ImageNet(dataroot=root,resolution=image_size)
+        dataset, _, _, _ = ImageNet(dataroot=root, resolution=image_size)
         print(f"{save_path} not found downloading")
         train_loader = DataLoader(dataset, batch_size=len(dataset))
         data = next(iter(train_loader))
-        fast_imagenet = FastDataset(data[0], data[1])
+        fast_imagenet = FastDataset(data[0], data[1], num_classes=1000)
         torch.save(fast_imagenet, save_path)
     return fast_imagenet, None, image_size, 3
+
 
 def CIFAR10AUG(dataroot, skip_normalization=False, train_aug=False):
     dataset_dir = dataroot + "cifar_train/"
@@ -450,6 +463,7 @@ def CIFAR10AUG(dataroot, skip_normalization=False, train_aug=False):
 
     return train_dataset, train_dataset, resolution, 3
 
+
 def Malaria(dataroot, skip_normalization=False, train_aug=False):
     dataset_dir = dataroot + "cell_images"
     all_files = _list_image_files_recursively(dataset_dir)
@@ -458,3 +472,28 @@ def Malaria(dataroot, skip_normalization=False, train_aug=False):
     train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=classes)
 
     return train_dataset, train_dataset, resolution, 3
+
+
+def _Birds(dataroot, skip_normalization=False, train_aug=False, image_size=64):
+    all_files = pd.read_csv(dataroot + "CUB_200_2011/images_selected.csv")
+    all_files = dataroot + "CUB_200_2011/images/" + all_files["1"].values
+    classes = torch.load(dataroot + "CUB_200_2011/attributes/preprocessed_attributes.th")
+    train_dataset = ImageDataset(image_paths=all_files, resolution=image_size, classes=classes)
+    train_dataset.number_classes = classes.size(1)
+    return train_dataset, train_dataset, image_size, 3
+
+
+def Birds(dataroot, skip_normalization=False, train_aug=False, image_size=64):
+    print("Loading data")
+    save_path = f"{dataroot}/fast_birds_{image_size}"
+    if os.path.exists(save_path):
+        print(f"Loading from {save_path}")
+        fast_birds = torch.load(save_path)
+    else:
+        dataset, _, _, _ = _Birds(dataroot, skip_normalization, train_aug, image_size)
+        print(f"{save_path} not found, creating new")
+        train_loader = DataLoader(dataset, batch_size=len(dataset))
+        data = next(iter(train_loader))
+        fast_birds = FastDataset(data[0], data[1], dataset.number_classes)
+        torch.save(fast_birds, save_path)
+    return fast_birds, fast_birds, image_size, 3

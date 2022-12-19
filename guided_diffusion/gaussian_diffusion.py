@@ -159,7 +159,8 @@ class GaussianDiffusion:
             noise_marg_reg=False,
             train_with_classifier=True,
             train_only_classifier=False,
-            train_noised_classifier=False
+            train_noised_classifier=False,
+            multi_label_classifier=False
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -211,7 +212,11 @@ class GaussianDiffusion:
         self.train_with_classifier = train_with_classifier
         self.train_only_classifier = train_only_classifier
         self.train_noised_classifier = train_noised_classifier
-        self.classifier_loss = th.nn.CrossEntropyLoss()
+        self.multi_label_classifier = multi_label_classifier
+        if multi_label_classifier:
+            self.classifier_loss = th.nn.BCEWithLogitsLoss()
+        else:
+            self.classifier_loss = th.nn.CrossEntropyLoss()
 
     def q_mean_variance(self, x_start, t):
         """
@@ -1030,6 +1035,8 @@ class GaussianDiffusion:
                 else:
                     out_classifier = model.model.module.classify(x_start, th.zeros_like(t))
                 y = model_kwargs['y']
+                if self.multi_label_classifier:
+                    y = y.float()
                 loss_classifier = self.classifier_loss(out_classifier, y)
                 terms["loss_classifier"] = loss_classifier
                 if self.train_only_classifier:

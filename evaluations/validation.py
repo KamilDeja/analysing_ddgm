@@ -10,7 +10,8 @@ from scipy.stats import wasserstein_distance
 
 
 class Validator:
-    def __init__(self, n_classes, device, dataset, stats_file_name, dataloaders, score_model_device=None):
+    def __init__(self, n_classes, device, dataset, stats_file_name, dataloaders, score_model_device=None,
+                 multi_label_classifier=False):
         self.n_classes = n_classes
         self.device = device
         if not score_model_device:
@@ -18,6 +19,11 @@ class Validator:
         self.dataset = dataset
         self.score_model_device = score_model_device
         self.dataloaders = dataloaders
+        self.multi_label_classifier = multi_label_classifier
+        if multi_label_classifier:
+            self.classifier_loss = torch.nn.BCEWithLogitsLoss()
+        else:
+            self.classifier_loss = torch.nn.CrossEntropyLoss()
 
         print("Preparing validator")
         if dataset in ["MNIST", "Omniglot"]:  # , "DoubleMNIST"]:
@@ -33,7 +39,7 @@ class Validator:
             self.dims = 128 if dataset in ["Omniglot", "DoubleMNIST"] else 84  # 128
             self.score_model_func = net.part_forward
         elif dataset.lower() in ["celeba", "doublemnist", "fashionmnist", "flowers", "cern", "cifar10", "lsun",
-                                 "imagenet", "malaria", "cifar100"]:
+                                 "imagenet", "malaria", "cifar100", "birds"]:
             from evaluations.evaluation_models.inception import InceptionV3
             self.dims = 2048
             block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[self.dims]
@@ -58,13 +64,18 @@ class Validator:
             x = x.to(self.device)
             y = cond['y'].to(self.device)
             out_classifier = model.classify(x)
-            test_loss += torch.nn.CrossEntropyLoss()(out_classifier, y)
-            preds = torch.argmax(out_classifier,1)
-            correct += (preds == y).sum()
-            total+= len(y)
+            if self.multi_label_classifier:
+                preds = out_classifier > 0
+                correct += (preds == y).sum()
+                total += y.numel()
+                y = y.float()
+            else:
+                preds = torch.argmax(out_classifier, 1)
+                correct += (preds == y).sum()
+                total += len(y)
+            test_loss += self.classifier_loss(out_classifier, y)
         model.train()
-        return preds, test_loss/idx, correct/total
-
+        return preds, test_loss / idx, correct / total
 
     @torch.no_grad()
     def calculate_results(self, train_loop, task_id, n_generated_examples, dataset=None, batch_size=128):
