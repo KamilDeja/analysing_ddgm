@@ -160,7 +160,8 @@ class GaussianDiffusion:
             train_with_classifier=True,
             train_only_classifier=False,
             train_noised_classifier=False,
-            multi_label_classifier=False
+            multi_label_classifier=False,
+            skip_classifier_loss=False
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -213,10 +214,11 @@ class GaussianDiffusion:
         self.train_only_classifier = train_only_classifier
         self.train_noised_classifier = train_noised_classifier
         self.multi_label_classifier = multi_label_classifier
+        self.skip_classifier_loss = skip_classifier_loss
         if multi_label_classifier:
-            self.classifier_loss = th.nn.BCEWithLogitsLoss()
+            self.classifier_loss = th.nn.BCEWithLogitsLoss(reduction="none")
         else:
-            self.classifier_loss = th.nn.CrossEntropyLoss()
+            self.classifier_loss = th.nn.CrossEntropyLoss(reduction="none")
 
     def q_mean_variance(self, x_start, t):
         """
@@ -1029,7 +1031,7 @@ class GaussianDiffusion:
             else:
                 terms["loss"] = terms["mse"]
 
-            if self.train_with_classifier:
+            if self.train_with_classifier and (not self.skip_classifier_loss):
                 if self.train_noised_classifier:
                     out_classifier = model.model.module.classify(x_t, t)
                 else:
@@ -1037,11 +1039,14 @@ class GaussianDiffusion:
                 y = model_kwargs['y']
                 if self.multi_label_classifier:
                     y = y.float()
-                loss_classifier = self.classifier_loss(out_classifier, y)
-                terms["loss_classifier"] = loss_classifier
+
+                selected_indices_with_labels = (y != -1)
+                loss_classifier = self.classifier_loss(out_classifier[selected_indices_with_labels], y[selected_indices_with_labels])
+                loss_classifier = loss_classifier.mean()
                 if self.train_only_classifier:
                     terms["loss"] *= 0
                 terms["loss"] += loss_classifier
+                terms["loss_classifier"] = loss_classifier
 
             if self.lap_loss_fn:
                 terms["lap_loss"] = th.zeros_like(terms["loss"])

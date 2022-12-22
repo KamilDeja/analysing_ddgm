@@ -78,7 +78,8 @@ def model_and_diffusion_defaults():
         train_with_classifier=False,
         train_only_classifier=False,
         train_noised_classifier=False,
-        multi_label_classifier=False
+        multi_label_classifier=False,
+        skip_classifier_loss=False
     )
     res.update(diffusion_defaults())
     return res
@@ -126,7 +127,8 @@ def create_model_and_diffusion(
         train_with_classifier=False,
         train_only_classifier=False,
         train_noised_classifier=False,
-        multi_label_classifier=False
+        multi_label_classifier=False,
+        skip_classifier_loss=False
 ):
     model = create_model(
         image_size,
@@ -150,7 +152,7 @@ def create_model_and_diffusion(
         use_new_attention_order=use_new_attention_order,
         num_classes=num_classes,
         dae_only = dae_only,
-        train_with_classifier=train_with_classifier
+        train_with_classifier=train_with_classifier,
     )
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
@@ -169,7 +171,8 @@ def create_model_and_diffusion(
         train_with_classifier=train_with_classifier,
         train_only_classifier=train_only_classifier,
         train_noised_classifier=train_noised_classifier,
-        multi_label_classifier=multi_label_classifier
+        multi_label_classifier=multi_label_classifier,
+        skip_classifier_loss=skip_classifier_loss
     )
     return model, diffusion
 
@@ -479,7 +482,8 @@ def create_gaussian_diffusion(
         train_with_classifier=False,
         train_only_classifier=False,
         train_noised_classifier=False,
-        multi_label_classifier=False
+        multi_label_classifier=False,
+        skip_classifier_loss=False
 ):
     betas = gd.get_named_beta_schedule(noise_schedule, steps, first_step_beta)
     if use_kl:
@@ -519,7 +523,8 @@ def create_gaussian_diffusion(
         train_with_classifier=train_with_classifier,
         train_only_classifier=train_only_classifier,
         train_noised_classifier=train_noised_classifier,
-        multi_label_classifier=multi_label_classifier
+        multi_label_classifier=multi_label_classifier,
+        skip_classifier_loss=skip_classifier_loss
     )
 
 

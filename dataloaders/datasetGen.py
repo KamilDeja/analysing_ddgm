@@ -11,7 +11,7 @@ from .wrapper import Subclass, AppendName, Permutation
 def data_split(dataset, dataset_name, return_classes=False, return_task_as_class=False, num_batches=5, num_classes=10,
                random_split=False,
                limit_data=None, dirichlet_split_alpha=None, dirichlet_equal_split=True, reverse=False,
-               limit_classes=-1, val_size = 0.3, seed=0):
+               limit_classes=-1, val_size = 0.3, seed=0, labelled_data_share=1):
     assert num_batches == 1
 
     rng = np.random.default_rng(seed=seed)
@@ -28,7 +28,7 @@ def data_split(dataset, dataset_name, return_classes=False, return_task_as_class
     val_dataset_splits = {}
 
     train_dataset_splits[0] = AppendName(train_subset, [0] * len(train_subset), return_classes=return_classes,
-                                            return_task_as_class=return_task_as_class)
+                                            return_task_as_class=return_task_as_class, labelled_data_share=labelled_data_share)
     val_dataset_splits[0] = AppendName(val_subset, [0] * len(train_subset), return_classes=return_classes,
                                           return_task_as_class=return_task_as_class)
 

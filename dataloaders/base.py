@@ -61,6 +61,69 @@ def CelebA(root, skip_normalization=False, train_aug=False, image_size=64, targe
     # val_set = CacheClassLabel(val_set)
     return fast_celeba, None, 64, 3
 
+def SVHN(dataroot, skip_normalization=False, train_aug=False):
+    normalize = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+
+    if skip_normalization:
+        val_transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+    else:
+        val_transform = transforms.Compose([
+            transforms.ToTensor(),
+            normalize,
+        ])
+
+    train_transform = val_transform
+    if train_aug:
+        train_transform = transforms.Compose([
+            transforms.ToTensor(),
+            normalize,
+        ])
+
+    train_dataset = torchvision.datasets.SVHN(
+        root=dataroot,
+        split="train",
+        download=True,
+        transform=train_transform
+    )
+    train_dataset = CacheClassLabel(train_dataset)
+
+    val_dataset = torchvision.datasets.SVHN(
+        dataroot,
+        split="test",
+        download=True,
+        transform=val_transform
+    )
+    val_dataset = CacheClassLabel(val_dataset)
+
+    return train_dataset, val_dataset, 32, 3
+
+def MNIST32(dataroot, skip_normalization=False, train_aug=False):
+    transform = torchvision.transforms.Compose([
+        torchvision.transforms.Grayscale(3),
+        torchvision.transforms.Resize(32),
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    ])
+
+    train_dataset = torchvision.datasets.MNIST(
+        root=dataroot,
+        train=True,
+        download=True,
+        transform=transform
+    )
+    train_dataset = CacheClassLabel(train_dataset)
+
+    val_dataset = torchvision.datasets.MNIST(
+        dataroot,
+        train=False,
+        download=True,
+        transform=transform
+    )
+    val_dataset = CacheClassLabel(val_dataset)
+
+    return train_dataset, val_dataset, 32, 3
 
 def MNIST(dataroot, skip_normalization=False, train_aug=False):
     normalize = transforms.Normalize(mean=(0.5,), std=(0.5,))

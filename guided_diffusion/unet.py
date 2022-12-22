@@ -394,14 +394,19 @@ class QKVAttention(nn.Module):
 
 
 class Classifier(nn.Module):
-    def __init__(self, n_classes, image_size):
+    def __init__(self, n_classes, image_size, num_channels):
         super().__init__()
         if image_size == 28:
             self.pooling = nn.AvgPool2d(7)
             in_features = 128 * 8 + 64 * 5
         elif image_size == 32:
             self.pooling = nn.AvgPool2d(4)
-            in_features = 256 + 3456
+            if num_channels == 128:
+                in_features = 256 + 3456
+            elif num_channels == 64:
+                in_features =  128 + 1728
+            else:
+                raise NotImplementedError
         elif image_size == 64:
             self.pooling = nn.AvgPool2d(8)  # model.model.module.classify(x_start)
             in_features = 512 + 4736
@@ -497,7 +502,7 @@ class UNetModel(nn.Module):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
         if train_with_classifier:
-            self.clasifier = Classifier(n_classes=num_classes, image_size=image_size)
+            self.clasifier = Classifier(n_classes=num_classes, image_size=image_size, num_channels=model_channels)
         self.num_classes = num_classes
 
         time_embed_dim = model_channels * 4

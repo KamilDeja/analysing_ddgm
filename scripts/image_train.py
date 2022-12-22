@@ -100,7 +100,8 @@ def main():
                                                                              dirichlet_split_alpha=args.dirichlet,
                                                                              reverse=args.reverse,
                                                                              limit_classes=args.limit_classes,
-                                                                             val_size=0 if args.validate_on_train else 0.1)
+                                                                             val_size=0 if args.validate_on_train else 0.1,
+                                                                             labelled_data_share = args.labelled_data_share)
 
     if not args.skip_validation:
         val_loaders = []
@@ -209,6 +210,7 @@ def main():
             validation_interval=args.validation_interval
         )
         if args.load_model_path is not None:
+            print(f"Loading model {args.load_model_path}")
             if args.model_name == "UNetModel":
                 model.load_state_dict(
                     dist_util.load_state_dict(args.load_model_path + ".pt", map_location="cpu")
@@ -221,7 +223,7 @@ def main():
                     dist_util.load_state_dict(args.load_model_path + "_part_2.pt", map_location="cpu")
                 )
             model.to(dist_util.dev())
-            train_loop.step = int(args.load_model_path[-8:-2])
+            # train_loop.step = int(args.load_model_path[-8:-2])
         train_loop.run_loop()
 
         if args.schedule_sampler == "only_dae":
@@ -300,7 +302,8 @@ def create_argparser():
         generate_previous_samples_continuously=True,
         load_model_path=None,
         load_pretrained_for_dae=False,
-        img_size=None
+        img_size=None,
+        labelled_data_share=1.0
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
