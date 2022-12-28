@@ -75,7 +75,8 @@ class TrainLoop:
             generate_previous_examples_at_start_of_new_task=False,
             generate_previous_samples_continuously=False,
             validator=None,
-            validation_interval=None
+            validation_interval=None,
+            semi_supervised_training=False
     ):
         self.params = params
         self.task_id = task_id
@@ -138,11 +139,12 @@ class TrainLoop:
                 copy.deepcopy(self.mp_trainer.master_params)
                 for _ in range(len(self.ema_rate))
             ]
-
+        self.semi_supervised_training = semi_supervised_training
         if th.cuda.is_available():
             self.use_ddp = False
             find_unused_params = ((not isinstance(self.model, UNetModel)) and (
-                not isinstance(self.schedule_sampler, DAEOnlySampler))) or self.diffusion.skip_classifier_loss
+                not isinstance(self.schedule_sampler,
+                               DAEOnlySampler))) or self.diffusion.skip_classifier_loss
             self.ddp_model = DDP(
                 self.model,
                 device_ids=[dist_util.dev()],

@@ -8,22 +8,30 @@ from torch.utils.data import Subset
 from .wrapper import Subclass, AppendName, Permutation
 
 
-def data_split(dataset, dataset_name, return_classes=False, return_task_as_class=False, num_batches=5, num_classes=10,
+def data_split(dataset, dataset_name, val_dataset=None, return_classes=False, return_task_as_class=False, num_batches=5, num_classes=10,
                random_split=False,
                limit_data=None, dirichlet_split_alpha=None, dirichlet_equal_split=True, reverse=False,
-               limit_classes=-1, val_size = 0.3, seed=0, labelled_data_share=1):
+               limit_classes=-1, val_size = 0.2, seed=0, labelled_data_share=1):
     assert num_batches == 1
 
     rng = np.random.default_rng(seed=seed)
     res = []
+    if val_dataset:
+        val_size = 0
     num_selected = int(val_size * len(dataset))
     train_set_indices_bitmask = torch.ones(len(dataset))
-    validation_indices = rng.choice(range(len(dataset)), num_selected)
+    validation_indices = rng.choice(range(len(dataset)), num_selected, replace=False)
     train_set_indices_bitmask[validation_indices] = 0
+    if limit_data:
+        num_selected = int((1-float(limit_data)) * len(dataset))
+        skipped_indices = rng.choice(range(len(dataset)), num_selected, replace=False)
+        train_set_indices_bitmask[skipped_indices] = -1
 
     train_subset = Subset(dataset, torch.where(train_set_indices_bitmask == 1)[0])
-
-    val_subset = Subset(dataset, torch.where(train_set_indices_bitmask == 0)[0])
+    if val_dataset:
+        val_subset = val_dataset
+    else:
+        val_subset = Subset(dataset, torch.where(train_set_indices_bitmask == 0)[0])
     train_dataset_splits = {}
     val_dataset_splits = {}
 

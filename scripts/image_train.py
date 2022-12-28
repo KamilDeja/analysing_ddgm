@@ -63,11 +63,11 @@ def main():
 
     if args.img_size:
         args.img_size = int(args.img_size)
-        train_dataset, val_dataset, image_size, image_channels = base.__dict__[args.dataset](args.dataroot,
+        train_dataset, test_set, image_size, image_channels = base.__dict__[args.dataset](args.dataroot,
                                                                                              train_aug=args.train_aug,
                                                                                              resolution=args.img_size)
     else:
-        train_dataset, val_dataset, image_size, image_channels = base.__dict__[args.dataset](args.dataroot,
+        train_dataset, test_set, image_size, image_channels = base.__dict__[args.dataset](args.dataroot,
                                                                                              train_aug=args.train_aug)
 
     print(f"Training with image size:{image_size}")
@@ -79,7 +79,7 @@ def main():
     else:
         n_classes = train_dataset.number_classes
 
-    args.num_classes = n_classes #args.num_tasks
+    args.num_classes = n_classes  # args.num_tasks
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys()), dae_only=args.schedule_sampler == "only_dae"
@@ -89,7 +89,13 @@ def main():
 
     logger.log("creating data loader...")
 
+    if args.eval_on_test_set:
+        val_dataset = test_set
+    else:
+        val_dataset = None
+
     train_dataset_splits, val_dataset_splits, task_output_space = data_split(dataset=train_dataset,
+                                                                             val_dataset=val_dataset,
                                                                              return_classes=args.class_cond,
                                                                              return_task_as_class=False,
                                                                              dataset_name=args.dataset.lower(),
@@ -101,7 +107,7 @@ def main():
                                                                              reverse=args.reverse,
                                                                              limit_classes=args.limit_classes,
                                                                              val_size=0 if args.validate_on_train else 0.1,
-                                                                             labelled_data_share = args.labelled_data_share)
+                                                                             labelled_data_share=args.labelled_data_share)
 
     if not args.skip_validation:
         val_loaders = []
@@ -207,7 +213,8 @@ def main():
             generate_previous_examples_at_start_of_new_task=args.generate_previous_examples_at_start_of_new_task,
             generate_previous_samples_continuously=args.generate_previous_samples_continuously,
             validator=validator,
-            validation_interval=args.validation_interval
+            validation_interval=args.validation_interval,
+            semi_supervised_training=(args.labelled_data_share < 1)
         )
         if args.load_model_path is not None:
             print(f"Loading model {args.load_model_path}")
@@ -303,7 +310,8 @@ def create_argparser():
         load_model_path=None,
         load_pretrained_for_dae=False,
         img_size=None,
-        labelled_data_share=1.0
+        labelled_data_share=1.0,
+        eval_on_test_set=False
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

@@ -394,21 +394,27 @@ class QKVAttention(nn.Module):
 
 
 class Classifier(nn.Module):
-    def __init__(self, n_classes, image_size, num_channels):
+    def __init__(self, n_classes, image_size, num_channels, max_pooling=False):
         super().__init__()
+        if max_pooling:
+            self.pooling_fn = nn.MaxPool2d
+        else:
+            self.pooling_fn = nn.AvgPool2d
         if image_size == 28:
-            self.pooling = nn.AvgPool2d(7)
+            self.pooling = self.pooling_fn(7)
             in_features = 128 * 8 + 64 * 5
         elif image_size == 32:
-            self.pooling = nn.AvgPool2d(4)
+            self.pooling = self.pooling_fn(4)
             if num_channels == 128:
                 in_features = 256 + 3456
             elif num_channels == 64:
                 in_features =  128 + 1728
+            elif num_channels == 32:
+                in_features = 64 + 864
             else:
                 raise NotImplementedError
         elif image_size == 64:
-            self.pooling = nn.AvgPool2d(8)  # model.model.module.classify(x_start)
+            self.pooling = self.pooling_fn(8)  # model.model.module.classify(x_start)
             in_features = 512 + 4736
         self.fc_1 = linear(in_features + 1, in_features // 2)
         self.fc_2 = linear(in_features // 2, n_classes)

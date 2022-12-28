@@ -61,6 +61,7 @@ def CelebA(root, skip_normalization=False, train_aug=False, image_size=64, targe
     # val_set = CacheClassLabel(val_set)
     return fast_celeba, None, 64, 3
 
+
 def SVHN(dataroot, skip_normalization=False, train_aug=False):
     normalize = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 
@@ -99,6 +100,7 @@ def SVHN(dataroot, skip_normalization=False, train_aug=False):
 
     return train_dataset, val_dataset, 32, 3
 
+
 def MNIST32(dataroot, skip_normalization=False, train_aug=False):
     transform = torchvision.transforms.Compose([
         torchvision.transforms.Grayscale(3),
@@ -124,6 +126,21 @@ def MNIST32(dataroot, skip_normalization=False, train_aug=False):
     val_dataset = CacheClassLabel(val_dataset)
 
     return train_dataset, val_dataset, 32, 3
+
+
+def DA_SVHN_MNIST(dataroot, skip_normalization=False, train_aug=False):
+    train_dataset_SVHN, val_dataset_SVHN, resolution, channels = SVHN(dataroot, skip_normalization, train_aug)
+    train_dataset_MNIST, val_dataset_MNIST, resolution_MNIST, channels_MNIST = MNIST32(dataroot, skip_normalization,
+                                                                                    train_aug)
+    if (channels_MNIST != channels) or (resolution != resolution_MNIST):
+        raise Exception("Wrong number of channels or wrong resolution")
+    # train_dataset_MNIST.dataset.labels = np.ones_like(train_dataset_MNIST.dataset.labels) - 2
+    train_dataset_MNIST.dataset.targets = np.ones_like(train_dataset_MNIST.dataset.targets) - 2
+    train_dataset = ConcatDataset([train_dataset_SVHN, train_dataset_MNIST])
+    # val_dataset = ConcatDataset([val_dataset_SVHN, val_dataset_MNIST])
+    train_dataset.number_classes = 10
+    return train_dataset, val_dataset_MNIST, resolution, channels
+
 
 def MNIST(dataroot, skip_normalization=False, train_aug=False):
     normalize = transforms.Normalize(mean=(0.5,), std=(0.5,))
@@ -474,6 +491,7 @@ def LSUN(dataroot, skip_normalization=False, train_aug=False):
     train_dataset = ImageDataset(image_paths=all_files, resolution=resolution, classes=np.zeros(len(all_files)))
 
     return train_dataset, train_dataset, resolution, 3
+
 
 def MNIST_mini(dataroot, skip_normalization=False, train_aug=False):
     dataset_dir = dataroot + "mnist_limited/"

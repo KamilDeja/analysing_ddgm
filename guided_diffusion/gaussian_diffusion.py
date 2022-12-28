@@ -9,6 +9,7 @@ import enum
 import math
 
 import numpy as np
+import torch
 import torch as th
 from . import logger
 import os
@@ -918,7 +919,7 @@ class GaussianDiffusion:
         trace = 0
 
         def mse_loss(mu):
-            return ((x_0 - model(mu, t))**2).mean()
+            return ((x_0 - model(mu, t)) ** 2).mean()
 
         for _ in range(V):
             # vec = self.rademacher(mu.shape)
@@ -961,7 +962,7 @@ class GaussianDiffusion:
                 trace = self.hutchinson_trace_autodiff(mu, x_0=x_start, t=t, model=model)
                 terms["reg"] = 0.5 * sigma * trace
                 terms["mse"] = ((mu_pred - x_start) ** 2).mean()
-                terms["loss"] = 10000*terms["reg"] + terms["mse"]
+                terms["loss"] = 10000 * terms["reg"] + terms["mse"]
         elif self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
             vb_out = self._vb_terms_bpd(
                 model=model,
@@ -1041,8 +1042,14 @@ class GaussianDiffusion:
                     y = y.float()
 
                 selected_indices_with_labels = (y != -1)
-                loss_classifier = self.classifier_loss(out_classifier[selected_indices_with_labels], y[selected_indices_with_labels])
-                loss_classifier = loss_classifier.mean()
+                if selected_indices_with_labels.sum() == 0:
+                    loss_classifier = self.classifier_loss(out_classifier, torch.zeros_like(y))
+                    loss_classifier *= 0
+                else:
+                    loss_classifier = self.classifier_loss(out_classifier[selected_indices_with_labels],
+                                                           y[selected_indices_with_labels])
+                    loss_classifier = loss_classifier.mean()
+                    # loss_classifier *= selected_indices_with_labels.sum()/len(selected_indices_with_labels)
                 if self.train_only_classifier:
                     terms["loss"] *= 0
                 terms["loss"] += loss_classifier

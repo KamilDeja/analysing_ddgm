@@ -39,7 +39,7 @@ class Validator:
             self.dims = 128 if dataset in ["Omniglot", "DoubleMNIST"] else 84  # 128
             self.score_model_func = net.part_forward
         elif dataset.lower() in ["celeba", "doublemnist", "fashionmnist", "flowers", "cern", "cifar10", "lsun",
-                                 "imagenet", "malaria", "cifar100", "birds", "svhn", "mnist32"]:
+                                 "imagenet", "malaria", "cifar100", "birds", "svhn", "mnist32", "da_svhn_mnist"]:
             from evaluations.evaluation_models.inception import InceptionV3
             self.dims = 2048
             block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[self.dims]
