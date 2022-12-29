@@ -131,7 +131,7 @@ def MNIST32(dataroot, skip_normalization=False, train_aug=False):
 def DA_SVHN_MNIST(dataroot, skip_normalization=False, train_aug=False):
     train_dataset_SVHN, val_dataset_SVHN, resolution, channels = SVHN(dataroot, skip_normalization, train_aug)
     train_dataset_MNIST, val_dataset_MNIST, resolution_MNIST, channels_MNIST = MNIST32(dataroot, skip_normalization,
-                                                                                    train_aug)
+                                                                                       train_aug)
     if (channels_MNIST != channels) or (resolution != resolution_MNIST):
         raise Exception("Wrong number of channels or wrong resolution")
     # train_dataset_MNIST.dataset.labels = np.ones_like(train_dataset_MNIST.dataset.labels) - 2
@@ -439,6 +439,30 @@ def Flowers(dataroot, skip_normalization=False, train_aug=True):
     val_dataset = CacheClassLabel(val_dataset)
 
     return train_dataset, val_dataset, 64, 3
+
+
+def OFFICE(dataroot, source, skip_normalization=False, train_aug=False, image_size=64):
+    normalize = transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+
+    train_transform = transforms.Compose([
+        transforms.ToTensor(),
+        torchvision.transforms.Resize(image_size),
+        normalize,
+    ])
+    train_dir = f"{dataroot}/office31/{source}/"
+    train_dataset = torchvision.datasets.ImageFolder(train_dir, transform=train_transform)
+    train_dataset = CacheClassLabel(train_dataset)
+    return train_dataset, train_dataset, image_size, 3
+
+
+def OFFICE_A(dataroot, skip_normalization=False, train_aug=False):
+    return OFFICE(dataroot, "amazon", skip_normalization, train_aug)
+
+def OFFICE_W(dataroot, skip_normalization=False, train_aug=False):
+    return OFFICE(dataroot, "webcam", skip_normalization, train_aug)
+
+def OFFICE_D(dataroot, skip_normalization=False, train_aug=False):
+    return OFFICE(dataroot, "dslr", skip_normalization, train_aug)
 
 
 def CIFAR100(dataroot, skip_normalization=False, train_aug=False):

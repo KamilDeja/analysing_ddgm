@@ -145,6 +145,7 @@ class TrainLoop:
             find_unused_params = ((not isinstance(self.model, UNetModel)) and (
                 not isinstance(self.schedule_sampler,
                                DAEOnlySampler))) or self.diffusion.skip_classifier_loss
+            # find_unused_params = True
             self.ddp_model = DDP(
                 self.model,
                 device_ids=[dist_util.dev()],
@@ -225,7 +226,7 @@ class TrainLoop:
             if self.step > 100:
                 self.mp_trainer.skip_gradient_thr = self.params.skip_gradient_thr
             batch, cond = next(self.data)
-            self.run_step(batch, cond)
+            self.run_step(batch, cond, self.step)
             if self.step % self.log_interval == 0:
                 if logger.get_rank_without_mpi_import() == 0:
                     wandb.log(logger.getkvs(), step=self.step)
@@ -282,15 +283,15 @@ class TrainLoop:
             self.snr_plots(batch, cond, self.task_id, self.step)
             self.draw_final_snr_plot(self.step, self.task_id)
 
-    def run_step(self, batch, cond):
-        self.forward_backward(batch, cond)
+    def run_step(self, batch, cond, step):
+        self.forward_backward(batch, cond, step)
         took_step = self.mp_trainer.optimize(self.opt)
         if took_step:
             self._update_ema()
         self._anneal_lr()
         self.log_step()
 
-    def forward_backward(self, batch, cond):
+    def forward_backward(self, batch, cond, step):
         self.mp_trainer.zero_grad()
         for i in range(0, batch.shape[0], self.microbatch):
             micro = batch[i: i + self.microbatch].to(dist_util.dev())
@@ -325,7 +326,8 @@ class TrainLoop:
                 micro,
                 t,
                 model_kwargs=micro_cond,
-                dae_only=isinstance(self.schedule_sampler, DAEOnlySampler)
+                dae_only=isinstance(self.schedule_sampler, DAEOnlySampler),
+                step=step
             )
 
             if last_batch or not self.use_ddp:

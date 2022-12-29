@@ -300,7 +300,7 @@ def create_argparser():
         skip_validation=False,
         n_examples_validation=5000,
         validation_interval=25000,
-        validate_on_train=True,
+        validate_on_train=False,
         use_gpu_for_validation=True,
         n_generated_examples_per_task=1000,
         first_task_num_steps=5000,

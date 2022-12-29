@@ -162,7 +162,9 @@ class GaussianDiffusion:
             train_only_classifier=False,
             train_noised_classifier=False,
             multi_label_classifier=False,
-            skip_classifier_loss=False
+            skip_classifier_loss=False,
+            late_classifier_step=0
+
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -216,6 +218,7 @@ class GaussianDiffusion:
         self.train_noised_classifier = train_noised_classifier
         self.multi_label_classifier = multi_label_classifier
         self.skip_classifier_loss = skip_classifier_loss
+        self.late_classifier_step = late_classifier_step
         if multi_label_classifier:
             self.classifier_loss = th.nn.BCEWithLogitsLoss(reduction="none")
         else:
@@ -929,7 +932,7 @@ class GaussianDiffusion:
 
         return trace
 
-    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None, dae_only=False):
+    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None, dae_only=False, step=0):
         """
         Compute training losses for a single timestep.
 
@@ -1042,7 +1045,7 @@ class GaussianDiffusion:
                     y = y.float()
 
                 selected_indices_with_labels = (y != -1)
-                if selected_indices_with_labels.sum() == 0:
+                if (selected_indices_with_labels.sum() == 0) or (step < self.late_classifier_step):
                     loss_classifier = self.classifier_loss(out_classifier, torch.zeros_like(y))
                     loss_classifier *= 0
                 else:
